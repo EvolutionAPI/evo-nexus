@@ -8,20 +8,6 @@
 .env
 .claude/.env
 
-# ── Personal workspace data ───────────────
-# Track folder structure (.gitkeep) but ignore all content inside.
-# Old PT folder names (keep ignoring for existing installs)
-01 Daily Logs/
-02 Projects/
-03 Comunidade/
-04 Redes Sociais/
-05 Financeiro/
-06 Pessoal/
-07 Reuniões/
-08 Cursos/
-09 Estrategia/
-09 Reuniões/
-
 # EN folder names (new standard)
 workspace/daily-logs/*
 !workspace/daily-logs/.gitkeep
