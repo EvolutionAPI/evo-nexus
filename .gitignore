@@ -55,6 +55,7 @@ dashboard/frontend/dist/
 # ── Evo Method (separate project) ────────
 _evo/
 _evo-output/
+.claude/skills/evo-*/
 
 # ── Python ────────────────────────────────
 .venv/
