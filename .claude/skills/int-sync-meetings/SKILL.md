@@ -42,9 +42,9 @@ Read the file of already processed IDs:
 
 Compare with the returned `recording_id`. Process only IDs that **do not exist** in this file.
 
-**IMPORTANT:** This step is mandatory and cannot be skipped. Se o ID já existe no arquivo, a reunião **NÃO deve ser reprocessada** em hipótese alguma — nem summary, nem tarefas, nem notificação.
+**IMPORTANT:** This step is mandatory and cannot be skipped. If the ID already exists in the file, the meeting **MUST NOT be reprocessed** under any circumstances — no summary, no tasks, no notification.
 
-If there are no new meetings, enviar no Telegram "🎙️ Sync Meetings — Nenhuma reunião nova." e **parar imediatamente**. Não continuar para os passos seguintes.
+If there are no new meetings, send via Telegram "🎙️ Sync Meetings — No new meetings." and **stop immediately**. Do not continue to the following steps.
 
 ### Step 3 — Save raw JSON
 
@@ -118,9 +118,9 @@ For each processed meeting, extract the `action_items` and create tasks in Todoi
    ```
    If the `recording_id` already has synced tasks, **DO NOT create new tasks**. Skip to Step 7.
 
-2. Buscar no Todoist se já existem tarefas com o título da reunião ou recording_id no comentário:
+2. Search Todoist for existing tasks com o meeting title ou recording_id no comentário:
    ```bash
-   todoist list --filter "search: {titulo da reunião}"
+   todoist list --filter "search: {meeting title}"
    ```
    If you find tasks that clearly correspond to the same action items, **DO NOT duplicate**. Registrar os IDs existentes no `fathom-todoist-sync.json` e pular.
 
@@ -141,13 +141,13 @@ Título: {ação traduzida e clara em PT-BR}
 Projeto: Evolution
 Prioridade: p3 (default) — subir para p2 se for blocker ou deadline próximo
 Comentário: 
-  📋 Origem: {título da reunião} ({data})
+  📋 Origem: {meeting title} ({data})
   🎯 Objetivo: {o que essa ação resolve}
   ➡️ Próximo passo: {ação concreta}
   🔗 Referência: {link do recording_playback_url}
 ```
 
-**Execute directly, sem relatório intermediário.** Não listar as tarefas antes de criar — criar e confirmar no final.
+**Execute directly, without intermediate report.** Do not list tasks before creating — create and confirm at the end.
 
 ### Step 7 — Mark as processed (IMMEDIATELY after each meeting)
 
@@ -162,7 +162,7 @@ One ID per line. Append, do not overwrite.
 
 Also update `fathom-todoist-sync.json` with the created task IDs.
 
-**Order per meeting:** Passo 3 → 4 → 5 → 6 → **7 (gravar state)** → próxima reunião.
+**Order per meeting:** Passo 3 → 4 → 5 → 6 → **7 (gravar state)** → next meeting.
 
 ### Step 8 — Final report
 
@@ -191,7 +191,7 @@ Send the Step 8 summary via Telegram to the user using the `/int-telegram` skill
 - Usar `reply(chat_id="YOUR_CHAT_ID", text="...")` via MCP
 - Formato curto: emoji + título + contagem de reuniões e tarefas
 
-If there are no new meetings (stopped at Step 2), send: "🎙️ Sync Meetings — Nenhuma reunião nova."
+If there are no new meetings (stopped at Step 2), send: "🎙️ Sync Meetings — No new meetings."
 
 ## Notes
 

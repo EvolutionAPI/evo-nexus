@@ -7,28 +7,8 @@ from routes._helpers import WORKSPACE, safe_read
 bp = Blueprint("scheduler", __name__)
 
 
-@bp.route("/api/scheduler")
-def get_schedule():
-    content = safe_read(WORKSPACE / "scheduler.py")
-    if not content:
-        return jsonify([])
-
-    entries = []
-
-    # Match: schedule.every().day.at("HH:MM").do(run_adw, "Name", "script.py")
-    # Or:    schedule.every(30).minutes.do(run_adw, "Name", "script.py")
-    # Or:    schedule.every().friday.at("HH:MM").do(run_adw, "Name", "script.py")
-    pattern = re.compile(
-        r'schedule\.every\(([^)]*)\)\.'
-        r'([\w.]+)'
-        r'(?:\.at\(["\']([^"\']+)["\']\))?'
-        r'\.do\(\s*(\w+)'
-        r'(?:\s*,\s*["\']([^"\']*)["\'])?'   # first string arg = name
-        r'(?:\s*,\s*["\']([^"\']*)["\'])?'    # second string arg = script
-    )
-
-    # Agent mapping from script name
-    SCRIPT_AGENTS = {
+# Agent mapping from script name (module level so _load_yaml_routines can access)
+SCRIPT_AGENTS = {
         "review_todoist": "clawdia", "good_morning": "clawdia", "email_triage": "clawdia",
         "sync_meetings": "clawdia", "end_of_day": "clawdia", "memory_sync": "clawdia",
         "weekly_review": "clawdia", "trends": "clawdia", "dashboard": "clawdia",
@@ -39,7 +19,25 @@ def get_schedule():
         "health_checkin": "kai", "strategy_digest": "sage",
         "social_analytics": "pixel", "youtube_report": "pixel", "instagram_report": "pixel",
         "linkedin_report": "pixel",
-    }
+}
+
+
+@bp.route("/api/scheduler")
+def get_schedule():
+    content = safe_read(WORKSPACE / "scheduler.py")
+    if not content:
+        return jsonify([])
+
+    entries = []
+
+    pattern = re.compile(
+        r'schedule\.every\(([^)]*)\)\.'
+        r'([\w.]+)'
+        r'(?:\.at\(["\']([^"\']+)["\']\))?'
+        r'\.do\(\s*(\w+)'
+        r'(?:\s*,\s*["\']([^"\']*)["\'])?'
+        r'(?:\s*,\s*["\']([^"\']*)["\'])?'
+    )
 
     for m in pattern.finditer(content):
         interval, freq_chain, time_str, func_name, name_arg, script_arg = m.groups()
@@ -162,5 +160,5 @@ def _load_yaml_routines(entries: list):
                 "custom": True,
             })
 
-    except Exception:
-        pass
+    except Exception as e:
+        print(f"Warning: Failed to load routines.yaml: {e}")

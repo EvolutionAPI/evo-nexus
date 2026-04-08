@@ -19,28 +19,28 @@ Ler todas as fontes disponíveis sem narrar cada passo. Se alguma fonte não exi
 Rodar `todoist list --filter "today | overdue"` para contar tarefas pendentes.
 
 ### 1b. Linear / Sprint
-Ler o último relatório de Linear em `workspace/projects/linear-reviews/` (arquivo mais recente `[C] *-linear-review.html`). Extrair:
+Read the latest report de Linear em `workspace/projects/linear-reviews/` (most recent file `[C] *-linear-review.html`). Extract:
 - Progresso do sprint (% e contagem)
 - Blockers
 - Issues em review
 - Issues concluídas
 
 ### 1c. GitHub
-Ler o último relatório de GitHub em `workspace/projects/github-reviews/` (arquivo mais recente `[C] *-github-review.html`). Extrair:
+Read the latest report de GitHub em `workspace/projects/github-reviews/` (most recent file `[C] *-github-review.html`). Extract:
 - PRs abertos
-- Issues da comunidade
+- Issues da community
 - Stars da semana
 - Último release
 
 ### 1d. Comunidade
-Ler o último community pulse em `workspace/community/reports/daily/` ou weekly em `workspace/community/reports/weekly/`. Extrair:
+Ler o último community pulse em `workspace/community/reports/daily/` ou weekly em `workspace/community/reports/weekly/`. Extract:
 - WAM (Weekly Active Members)
 - Sentimento geral
 - Tickets de suporte
 - Docs gaps
 
 ### 1e. Financeiro
-Ler o último strategy digest em `workspace/strategy/digests/` (arquivo mais recente). Extrair:
+Ler o último strategy digest em `workspace/strategy/digests/` (most recent file). Extract:
 - MRR
 - Assinaturas
 - Runway
@@ -50,7 +50,7 @@ Ler o último strategy digest em `workspace/strategy/digests/` (arquivo mais rec
 Usar /gog-calendar para listar eventos de hoje.
 
 ### 1g. Reuniões
-Ler `workspace/meetings/summaries/` ou `workspace/meetings/summaries/` — últimas 5 reuniões. Extrair:
+Ler `workspace/meetings/summaries/` ou `workspace/meetings/summaries/` — últimas 5 reuniões. Extract:
 - Data, título, participantes, action items
 
 ### 1h. Métricas de routines
@@ -118,7 +118,7 @@ Para rows dinâmicas (marcadas com `<!-- TEMPLATE -->`), gerar o HTML correto:
 Consolidar em bullets os itens que requerem atenção imediata. Exemplos:
 - Blockers no sprint
 - PRs sem review há mais de 2 dias
-- Sentimento negativo na comunidade
+- Sentimento negativo na community
 - Rotinas falhando
 - MRR em queda
 
