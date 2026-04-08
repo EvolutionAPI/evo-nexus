@@ -1,4 +1,10 @@
 <p align="center">
+  <a href="https://evolutionfoundation.com.br">
+    <img src="public/cover.png" alt="Evolution Foundation" height="60"/>
+  </a>
+</p>
+
+<p align="center">
   <img src="public/cover.svg" alt="OpenClaude" width="100%"/>
 </p>
 
