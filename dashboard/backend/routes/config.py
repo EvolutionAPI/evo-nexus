@@ -1,7 +1,8 @@
-"""Config endpoint — CLAUDE.md, ROUTINES.md, ROADMAP.md, commands, Makefile."""
+"""Config endpoint — CLAUDE.md, ROUTINES.md, ROADMAP.md, .env, commands, Makefile."""
 
 import re
-from flask import Blueprint, jsonify, Response, abort
+from flask import Blueprint, jsonify, request, Response, abort
+from flask_login import login_required
 from routes._helpers import WORKSPACE, safe_read
 
 bp = Blueprint("config", __name__)
@@ -62,6 +63,68 @@ def list_commands():
                 "content": content,
             })
     return jsonify(commands)
+
+
+@bp.route("/api/config/env")
+@login_required
+def get_env():
+    """Read .env file as structured key-value pairs."""
+    content = safe_read(WORKSPACE / ".env")
+    if content is None:
+        return jsonify({"entries": [], "raw": ""})
+
+    entries = []
+    for line in content.splitlines():
+        stripped = line.strip()
+        if not stripped or stripped.startswith("#"):
+            entries.append({"type": "comment", "value": line})
+        elif "=" in stripped:
+            key, _, val = stripped.partition("=")
+            entries.append({"type": "var", "key": key.strip(), "value": val.strip()})
+        else:
+            entries.append({"type": "comment", "value": line})
+
+    return jsonify({"entries": entries, "raw": content})
+
+
+@bp.route("/api/config/env", methods=["PUT"])
+@login_required
+def update_env():
+    """Update .env file. Accepts {entries: [...]} or {raw: "..."}."""
+    from models import has_permission, audit
+    from flask_login import current_user
+
+    if not has_permission(current_user.role, "config", "manage"):
+        abort(403)
+
+    data = request.get_json()
+    env_path = WORKSPACE / ".env"
+
+    if "raw" in data:
+        # Raw text mode
+        env_path.write_text(data["raw"])
+    elif "entries" in data:
+        # Structured mode
+        lines = []
+        for entry in data["entries"]:
+            if entry.get("type") == "comment":
+                lines.append(entry.get("value", ""))
+            else:
+                key = entry.get("key", "")
+                val = entry.get("value", "")
+                if key:
+                    lines.append(f"{key}={val}")
+        env_path.write_text("\n".join(lines) + "\n")
+
+    # Reload dotenv in current process
+    try:
+        from dotenv import load_dotenv
+        load_dotenv(env_path, override=True)
+    except Exception:
+        pass
+
+    audit(current_user, "env_updated", "config", "Updated .env file")
+    return jsonify({"status": "saved"})
 
 
 @bp.route("/api/config/makefile")
