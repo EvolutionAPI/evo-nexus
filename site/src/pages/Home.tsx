@@ -64,7 +64,7 @@ export default function Home() {
   }, []);
 
   const GITHUB_URL = "https://github.com/EvolutionAPI/open-claude";
-  const DOCS_URL = "https://github.com/EvolutionAPI/open-claude/tree/main/docs";
+  const DOCS_URL = "http://localhost:8080/docs";
 
   const scrollTo = (id: string) => {
     document.getElementById(id)?.scrollIntoView({ behavior: "smooth" });
@@ -172,7 +172,7 @@ export default function Home() {
           <FadeIn>
             <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-primary/10 border border-primary/20 text-primary text-sm font-medium mb-8">
               <Zap className="w-4 h-4" />
-              <span>v0.2.0 is now live</span>
+              <span>v{__APP_VERSION__} is now live</span>
             </div>
             <h1 className="text-5xl md:text-7xl font-bold tracking-tighter max-w-4xl mx-auto leading-tight mb-6">
               The open source operating system for <span className="text-transparent bg-clip-text bg-gradient-to-r from-primary to-emerald-300">AI-powered businesses</span>

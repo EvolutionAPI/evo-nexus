@@ -162,6 +162,18 @@ app.register_blueprint(twitter_auth_bp)
 app.register_blueprint(tiktok_auth_bp)
 app.register_blueprint(twitch_auth_bp)
 
+@app.route("/api/version")
+def api_version():
+    """Return current version from pyproject.toml."""
+    try:
+        pyproject = WORKSPACE / "pyproject.toml"
+        for line in pyproject.read_text().splitlines():
+            if line.startswith("version"):
+                return {"version": line.split('"')[1]}
+    except Exception:
+        pass
+    return {"version": "unknown"}
+
 @app.route("/api/social-accounts")
 def social_accounts():
     from env_manager import all_platforms_with_accounts
