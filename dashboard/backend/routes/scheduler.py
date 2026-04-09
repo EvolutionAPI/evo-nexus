@@ -16,6 +16,7 @@ SCRIPT_AGENTS = {
         "faq_sync": "pulse", "financial_pulse": "flux", "financial_weekly": "flux",
         "monthly_close": "flux", "licensing_daily": "atlas", "licensing_weekly": "atlas",
         "licensing_monthly": "atlas", "github_review": "atlas", "linear_review": "atlas",
+        "memory_lint": "clawdia",
         "health_checkin": "kai", "strategy_digest": "sage",
         "social_analytics": "pixel", "youtube_report": "pixel", "instagram_report": "pixel",
         "linkedin_report": "pixel",
