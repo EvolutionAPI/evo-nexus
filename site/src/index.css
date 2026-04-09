@@ -356,3 +356,158 @@
     inset: -1px;
   }
 }
+
+/* Docs content — dark theme styling for marked output */
+.docs-content {
+  color: #8b949e;
+  line-height: 1.7;
+}
+
+.docs-content h1 {
+  font-size: 1.875rem;
+  font-weight: 700;
+  color: #fff;
+  margin-top: 1.5rem;
+  margin-bottom: 1.5rem;
+}
+
+.docs-content h2 {
+  font-size: 1.5rem;
+  font-weight: 700;
+  color: #e6edf3;
+  margin-top: 2.5rem;
+  margin-bottom: 1rem;
+  padding-bottom: 0.5rem;
+  border-bottom: 1px solid #21262d;
+}
+
+.docs-content h3 {
+  font-size: 1.25rem;
+  font-weight: 600;
+  color: #e6edf3;
+  margin-top: 2rem;
+  margin-bottom: 0.75rem;
+}
+
+.docs-content h4 {
+  font-size: 1.125rem;
+  font-weight: 600;
+  color: #e6edf3;
+  margin-top: 1.5rem;
+  margin-bottom: 0.5rem;
+}
+
+.docs-content p {
+  margin-bottom: 1rem;
+}
+
+.docs-content strong {
+  color: #e6edf3;
+  font-weight: 600;
+}
+
+.docs-content a {
+  color: #00FFA7;
+}
+
+.docs-content a:hover {
+  text-decoration: underline;
+}
+
+.docs-content code {
+  background: #161b22;
+  color: #00FFA7;
+  padding: 0.125rem 0.375rem;
+  border-radius: 0.25rem;
+  font-size: 0.875rem;
+  font-family: 'JetBrains Mono', monospace;
+}
+
+.docs-content pre {
+  background: #0d1117;
+  border: 1px solid #30363d;
+  border-radius: 0.5rem;
+  padding: 1rem;
+  margin: 1rem 0;
+  overflow-x: auto;
+}
+
+.docs-content pre code {
+  background: none;
+  color: #e6edf3;
+  padding: 0;
+}
+
+.docs-content blockquote {
+  border-left: 4px solid #00FFA7;
+  padding: 0.5rem 1rem;
+  margin: 1rem 0;
+  color: #8b949e;
+  background: #161b22;
+  border-radius: 0 0.25rem 0.25rem 0;
+}
+
+.docs-content blockquote p {
+  margin-bottom: 0;
+}
+
+.docs-content ul {
+  list-style: disc;
+  margin-left: 1.5rem;
+  margin-top: 0.75rem;
+  margin-bottom: 0.75rem;
+}
+
+.docs-content ol {
+  list-style: decimal;
+  margin-left: 1.5rem;
+  margin-top: 0.75rem;
+  margin-bottom: 0.75rem;
+}
+
+.docs-content li {
+  margin-bottom: 0.25rem;
+}
+
+.docs-content li > ul,
+.docs-content li > ol {
+  margin-top: 0.25rem;
+  margin-bottom: 0.25rem;
+}
+
+.docs-content hr {
+  border-color: #21262d;
+  margin: 2rem 0;
+}
+
+.docs-content table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 1rem 0;
+}
+
+.docs-content thead th {
+  padding: 0.5rem 1rem;
+  text-align: left;
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: #e6edf3;
+  border-bottom: 1px solid #30363d;
+}
+
+.docs-content tbody td {
+  padding: 0.5rem 1rem;
+  font-size: 0.875rem;
+  color: #8b949e;
+  border-bottom: 1px solid #21262d;
+}
+
+.docs-content tbody tr:hover {
+  background: #161b22;
+}
+
+.docs-content img {
+  border-radius: 0.5rem;
+  max-width: 100%;
+  margin: 1rem 0;
+}

@@ -32,73 +32,16 @@ interface DocsIndex {
   sections: DocSection[];
 }
 
-// Configure marked with custom renderer for dark theme
+// Configure marked — use default renderer, style via CSS
+marked.setOptions({ breaks: false, gfm: true });
+
+// Fix image paths for docs
 const renderer = new marked.Renderer();
-
-renderer.heading = ({ text, depth }: { text: string; depth: number }) => {
-  const styles: Record<number, string> = {
-    1: 'text-3xl font-bold text-white mt-6 mb-6',
-    2: 'text-2xl font-bold text-[#e6edf3] mt-10 mb-4 pb-2 border-b border-[#21262d]',
-    3: 'text-xl font-semibold text-[#e6edf3] mt-8 mb-3',
-    4: 'text-lg font-semibold text-[#e6edf3] mt-6 mb-2',
-  };
-  return `<h${depth} class="${styles[depth] || ''}">${text}</h${depth}>`;
-};
-
-renderer.code = ({ text, lang }: { text: string; lang?: string }) =>
-  `<pre class="bg-[#0d1117] border border-[#30363d] rounded-lg p-4 my-4 overflow-x-auto"><code class="text-sm font-mono text-[#e6edf3]">${text.replace(/</g, '&lt;').replace(/>/g, '&gt;')}</code></pre>`;
-
-renderer.codespan = ({ text }: { text: string }) =>
-  `<code class="bg-[#161b22] text-[#00FFA7] px-1.5 py-0.5 rounded text-sm font-mono">${text}</code>`;
-
-renderer.link = ({ href, text }: { href: string; text: string }) =>
-  `<a href="${href}" class="text-[#00FFA7] hover:underline" target="_blank" rel="noreferrer">${text}</a>`;
-
 renderer.image = ({ href, text }: { href: string; text: string }) => {
   const src = href.replace(/^(\.\.\/)?imgs\//, '/docs/imgs/');
   return `<img src="${src}" alt="${text}" class="rounded-lg max-w-full my-4" />`;
 };
-
-renderer.blockquote = ({ text }: { text: string }) =>
-  `<blockquote class="border-l-4 border-[#00FFA7] pl-4 py-2 my-4 text-[#8b949e] bg-[#161b22] rounded-r">${text}</blockquote>`;
-
-renderer.table = ({ header, rows }: { header: { text: string; tokens: any[]; header: boolean; align: string | null }[]; rows: { text: string; tokens: any[]; header: boolean; align: string | null }[][] }) => {
-  const parser = marked.parse;
-  const renderCell = (cell: { text: string; tokens: any[]; header: boolean; align: string | null }, isHeader: boolean) => {
-    const content = cell.tokens.map((t: any) => {
-      if (t.type === 'text') return t.text;
-      if (t.type === 'codespan') return `<code class="bg-[#161b22] text-[#00FFA7] px-1.5 py-0.5 rounded text-sm font-mono">${t.text}</code>`;
-      if (t.type === 'strong') return `<strong class="text-[#e6edf3] font-semibold">${t.text}</strong>`;
-      if (t.type === 'em') return `<em>${t.text}</em>`;
-      if (t.type === 'link') return `<a href="${t.href}" class="text-[#00FFA7] hover:underline">${t.text}</a>`;
-      return t.raw || t.text || '';
-    }).join('');
-    return isHeader
-      ? `<th class="px-4 py-2 text-left text-sm font-semibold text-[#e6edf3] border-b border-[#30363d]">${content}</th>`
-      : `<td class="px-4 py-2 text-sm text-[#8b949e] border-b border-[#21262d]">${content}</td>`;
-  };
-  const headerRow = `<tr>${header.map(c => renderCell(c, true)).join('')}</tr>`;
-  const bodyRows = rows.map(row => `<tr class="hover:bg-[#161b22]">${row.map(c => renderCell(c, false)).join('')}</tr>`).join('');
-  return `<div class="overflow-x-auto my-4"><table class="w-full border-collapse"><thead>${headerRow}</thead><tbody>${bodyRows}</tbody></table></div>`;
-};
-
-renderer.list = ({ body, ordered }: { body: string; ordered: boolean }) =>
-  ordered
-    ? `<ol class="my-3 space-y-1 list-decimal ml-6 text-[#8b949e]">${body}</ol>`
-    : `<ul class="my-3 space-y-1 list-disc ml-6 text-[#8b949e]">${body}</ul>`;
-
-renderer.listitem = ({ text }: { text: string }) =>
-  `<li class="text-[#8b949e]">${text}</li>`;
-
-renderer.paragraph = ({ text }: { text: string }) =>
-  `<p class="text-[#8b949e] leading-relaxed mb-4">${text}</p>`;
-
-renderer.hr = () => `<hr class="border-[#21262d] my-8" />`;
-
-renderer.strong = ({ text }: { text: string }) =>
-  `<strong class="text-[#e6edf3] font-semibold">${text}</strong>`;
-
-marked.setOptions({ renderer, breaks: false, gfm: true });
+marked.use({ renderer });
 
 export default function Docs() {
   const [index, setIndex] = useState<DocsIndex | null>(null);
@@ -262,7 +205,7 @@ export default function Docs() {
             </div>
           ) : (
             <article
-              className="prose-invert max-w-none"
+              className="docs-content max-w-none"
               dangerouslySetInnerHTML={{ __html: marked.parse(content) as string }}
             />
           )}
