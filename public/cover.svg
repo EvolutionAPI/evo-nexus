@@ -40,7 +40,7 @@
 
   <!-- Skills -->
   <rect x="390" y="260" width="110" height="30" rx="15" fill="#00FFA7" fill-opacity="0.1" stroke="#00FFA7" stroke-opacity="0.3" stroke-width="1"/>
-  <text x="445" y="280" text-anchor="middle" font-family="Inter, sans-serif" font-size="12" fill="#00FFA7" font-weight="600">181 Skills</text>
+  <text x="445" y="280" text-anchor="middle" font-family="Inter, sans-serif" font-size="12" fill="#00FFA7" font-weight="600">130 Skills</text>
 
   <!-- Routines -->
   <rect x="520" y="260" width="130" height="30" rx="15" fill="#00FFA7" fill-opacity="0.1" stroke="#00FFA7" stroke-opacity="0.3" stroke-width="1"/>
