@@ -58,7 +58,7 @@ export default function Home() {
   }, [lightboxImg]);
 
   const copyCode = useCallback(() => {
-    navigator.clipboard.writeText(`git clone https://github.com/EvolutionAPI/open-claude.git\ncd open-claude\nmake setup\nmake dashboard-app\n# Open http://localhost:8080`);
+    navigator.clipboard.writeText(`npx @evoapi/open-claude`);
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
   }, []);
@@ -223,8 +223,7 @@ export default function Home() {
                 <div className="mx-auto text-xs text-muted-foreground font-mono">bash</div>
               </div>
               <div className="p-6 pt-12 font-mono text-sm leading-relaxed text-gray-300">
-                <div className="flex gap-2"><span className="text-primary">$</span> <span>git clone https://github.com/EvolutionAPI/open-claude.git</span></div>
-                <div className="flex gap-2"><span className="text-primary">$</span> <span>cd open-claude && make setup</span></div>
+                <div className="flex gap-2"><span className="text-primary">$</span> <span>npx @evoapi/open-claude</span></div>
                 <div className="text-emerald-400 mt-2">&#10003; Claude Code CLI detected</div>
                 <div className="text-emerald-400">&#10003; Dependencies installed</div>
                 <div className="text-emerald-400">&#10003; Dashboard built</div>
@@ -341,7 +340,7 @@ export default function Home() {
               <div className="hidden md:block absolute top-12 left-[10%] right-[10%] h-[2px] bg-border z-0"></div>
 
               {[
-                { step: 1, title: "Clone & Setup", code: "make setup", desc: "CLI wizard configures everything" },
+                { step: 1, title: "Install", code: "npx @evoapi/open-claude", desc: "CLI wizard configures everything" },
                 { step: 2, title: "Start Dashboard", code: "make dashboard-app", desc: "Web UI with admin setup, scheduler included" },
                 { step: 3, title: "Use Your Agents", code: "Say 'good morning'", desc: "Your AI team takes over your routines" },
               ].map((item, i) => (
@@ -444,7 +443,7 @@ export default function Home() {
           <FadeIn>
             <div className="text-center mb-8">
               <h2 className="text-3xl md:text-4xl font-bold mb-4">Start in 60 seconds</h2>
-              <p className="text-muted-foreground text-lg">Four commands. That's all it takes.</p>
+              <p className="text-muted-foreground text-lg">One command. That's all it takes.</p>
             </div>
 
             <div className="relative bg-[#0a0f18] rounded-xl border border-border overflow-hidden shadow-2xl">
@@ -466,11 +465,8 @@ export default function Home() {
                 </Button>
               </div>
               <div className="p-6 md:p-8 font-mono text-base md:text-lg leading-loose">
-                <div className="flex gap-3"><span className="text-primary select-none">$</span> <span className="text-gray-300"><span className="text-blue-400">git</span> clone https://github.com/EvolutionAPI/open-claude.git</span></div>
-                <div className="flex gap-3"><span className="text-primary select-none">$</span> <span className="text-gray-300"><span className="text-blue-400">cd</span> open-claude</span></div>
-                <div className="flex gap-3"><span className="text-primary select-none">$</span> <span className="text-gray-300"><span className="text-blue-400">make</span> setup</span></div>
-                <div className="flex gap-3"><span className="text-primary select-none">$</span> <span className="text-gray-300"><span className="text-blue-400">make</span> dashboard-app</span></div>
-                <div className="mt-2 text-muted-foreground"># Open http://localhost:8080</div>
+                <div className="flex gap-3"><span className="text-primary select-none">$</span> <span className="text-gray-300"><span className="text-blue-400">npx</span> @evoapi/open-claude</span></div>
+                <div className="mt-4 text-muted-foreground text-sm"># Or manually: git clone + make setup + make dashboard-app</div>
               </div>
             </div>
 

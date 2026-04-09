@@ -108,7 +108,15 @@ The setup wizard (`make setup`) checks for all prerequisites before proceeding.
 
 ## Quick Start
 
-### 1. Clone and setup
+### Method 1 — One command (recommended)
+
+```bash
+npx @evoapi/open-claude
+```
+
+This downloads and runs the interactive setup wizard automatically.
+
+### Method 2 — Manual clone
 
 ```bash
 git clone https://github.com/EvolutionAPI/open-claude.git
@@ -117,6 +125,8 @@ cd open-claude
 # Interactive setup wizard — checks prerequisites, creates config files
 make setup
 ```
+
+### What the wizard does
 
 The wizard:
 - Checks that Claude Code, uv, Node.js are installed

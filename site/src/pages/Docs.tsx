@@ -1,5 +1,5 @@
 import { useEffect, useState, useRef } from "react";
-import { useRoute, useLocation } from "wouter";
+import { useLocation } from "wouter";
 import {
   BookOpen, ChevronRight, Search, FileText, Layout, Bot,
   Zap, Workflow, Plug, Globe, BookMarked, Menu, X, ArrowLeft,
@@ -85,11 +85,11 @@ export default function Docs() {
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
   const [sidebarOpen, setSidebarOpen] = useState(false);
-  const [, setLocation] = useLocation();
-  const [matchDoc] = useRoute("/docs/:slug+");
+  const [location, setLocation] = useLocation();
   const contentRef = useRef<HTMLDivElement>(null);
 
-  const currentSlug = matchDoc ? (matchDoc as any).slug : null;
+  // Extract slug from URL path directly (more reliable than useRoute with wildcards)
+  const currentSlug = location.startsWith("/docs/") ? location.slice(6) : null;
 
   // Load index
   useEffect(() => {

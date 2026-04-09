@@ -128,10 +128,26 @@ async function main() {
   }
 
   // ── Clone ──────────────────────────────────
-  const targetDir = args[0] || "open-claude";
+  // Filter out subcommands — "install" means install here (current dir or default name)
+  const filteredArgs = args.filter(a => !["install", "init", "setup"].includes(a));
+  const targetDir = filteredArgs[0] || ".";
   const targetPath = resolve(process.cwd(), targetDir);
 
-  if (existsSync(targetPath)) {
+  if (targetDir === ".") {
+    // Clone into current directory
+    const { readdirSync } = await import("fs");
+    const files = readdirSync(targetPath).filter(f => !f.startsWith("."));
+    if (files.length > 0) {
+      const answer = await ask(`${YELLOW}Current directory is not empty (${files.length} items). Clone here anyway? [y/N]: ${RESET}`);
+      if (!answer.toLowerCase().startsWith("y")) {
+        console.log(`  ${DIM}Aborted.${RESET}\n`);
+        process.exit(0);
+      }
+    }
+    console.log(`  ${BOLD}Cloning OpenClaude into current directory...${RESET}\n`);
+    run(`git clone ${REPO} .`, { cwd: targetPath });
+    console.log();
+  } else if (existsSync(targetPath)) {
     const answer = await ask(`${YELLOW}Directory '${targetDir}' already exists. Continue anyway? [y/N]: ${RESET}`);
     if (!answer.toLowerCase().startsWith("y")) {
       console.log(`  ${DIM}Aborted.${RESET}\n`);

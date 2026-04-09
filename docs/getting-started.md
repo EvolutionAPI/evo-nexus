@@ -9,7 +9,15 @@
 
 ## Installation
 
-### 1. Clone and Setup
+### 1. Quick Install (recommended)
+
+```bash
+npx @evoapi/open-claude
+```
+
+This downloads and runs the interactive setup wizard automatically.
+
+### Alternative: Manual Clone
 
 ```bash
 git clone https://github.com/EvolutionAPI/open-claude.git
