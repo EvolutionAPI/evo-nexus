@@ -7,11 +7,18 @@ from routes._helpers import WORKSPACE
 bp = Blueprint("services", __name__)
 
 
-def _check_process(check_cmd: str) -> dict:
+def _check_process(cmd_args: list[str], pipe_grep: str | None = None) -> dict:
+    """Check if a process is running using argument-list subprocess calls.
+
+    If pipe_grep is provided, runs cmd_args and filters output for the pattern.
+    """
     try:
-        result = subprocess.run(check_cmd, shell=True, capture_output=True, text=True, timeout=5)
-        running = result.returncode == 0 and result.stdout.strip() != ""
-        return {"running": running, "detail": result.stdout.strip()[:200] if running else ""}
+        result = subprocess.run(cmd_args, capture_output=True, text=True, timeout=5)
+        output = result.stdout.strip()
+        if pipe_grep and output:
+            output = "\n".join(l for l in output.splitlines() if pipe_grep in l)
+        running = result.returncode == 0 and output != ""
+        return {"running": running, "detail": output[:200] if running else ""}
     except Exception:
         return {"running": False, "detail": ""}
 
@@ -23,7 +30,7 @@ def _check_scheduler() -> dict:
         if t.name == "scheduler" and t.is_alive():
             return {"running": True, "detail": "Running (embedded in dashboard)"}
     # Fallback: check for standalone scheduler.py process
-    result = _check_process("ps aux | grep '[s]cheduler.py' | grep -v grep")
+    result = _check_process(["ps", "aux"], pipe_grep="scheduler.py")
     return result
 
 
@@ -43,7 +50,7 @@ def list_services():
             "description": "Telegram Channel — receives and responds to messages via Claude",
             "command": "make telegram",
             "category": "channel",
-            **_check_process("screen -list 2>/dev/null | grep telegram"),
+            **_check_process(["screen", "-list"], pipe_grep="telegram"),
         },
         {
             "id": "discord-channel",
@@ -51,7 +58,7 @@ def list_services():
             "description": "Discord Channel — bidirectional chat bridge with Claude Code",
             "command": "make discord-channel",
             "category": "channel",
-            **_check_process("screen -list 2>/dev/null | grep discord-channel"),
+            **_check_process(["screen", "-list"], pipe_grep="discord-channel"),
         },
         {
             "id": "imessage",
@@ -59,14 +66,14 @@ def list_services():
             "description": "iMessage Channel — chat with Claude via Messages (macOS)",
             "command": "make imessage",
             "category": "channel",
-            **_check_process("screen -list 2>/dev/null | grep imessage"),
+            **_check_process(["screen", "-list"], pipe_grep="imessage"),
         },
         {
             "id": "dashboard",
             "name": "Dashboard App",
             "description": "This dashboard (React + Flask)",
             "command": "make dashboard-app",
-            **_check_process("ps aux | grep '[a]pp.py' | grep dashboard"),
+            **_check_process(["ps", "aux"], pipe_grep="app.py"),
         },
     ]
 
@@ -81,6 +88,8 @@ WORKSPACE_STR = str(WORKSPACE)
 @bp.route("/api/routines/<routine_id>/run", methods=["POST"])
 def run_routine(routine_id):
     """Manually trigger a routine execution."""
+    import shutil
+    from pathlib import Path
     from routes._helpers import get_routine_scripts
     routine_scripts = get_routine_scripts()
 
@@ -94,9 +103,18 @@ def run_routine(routine_id):
     if not script:
         return jsonify({"error": f"Unknown routine: {routine_id}"}), 400
 
-    cmd = f"cd {WORKSPACE_STR} && nohup uv run python ADWs/routines/{script} > /dev/null 2>&1 &"
+    # Validate script path is within ADWs/routines/
+    script_path = (WORKSPACE / "ADWs" / "routines" / script).resolve()
+    allowed_dir = (WORKSPACE / "ADWs" / "routines").resolve()
+    if not str(script_path).startswith(str(allowed_dir)):
+        return jsonify({"error": "Invalid script path"}), 400
+    if not script_path.exists():
+        return jsonify({"error": f"Script not found: {script}"}), 404
+
+    python_bin = shutil.which("uv")
+    cmd_args = ["uv", "run", "python", str(script_path)] if python_bin else ["python3", str(script_path)]
     try:
-        subprocess.Popen(cmd, shell=True)
+        subprocess.Popen(cmd_args, cwd=WORKSPACE_STR, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         return jsonify({"status": "started", "routine": routine_id, "script": script})
     except Exception as e:
         return jsonify({"error": str(e)}), 500
@@ -105,28 +123,32 @@ def run_routine(routine_id):
 TELEGRAM_LOG = f"{WORKSPACE_STR}/ADWs/logs/telegram.log"
 SCHEDULER_LOG = f"{WORKSPACE_STR}/ADWs/logs/scheduler.log"
 
-START_CMDS = {
-    "scheduler": f"cd {WORKSPACE_STR} && nohup uv run python -u scheduler.py >> {SCHEDULER_LOG} 2>&1 &",
-    "telegram": f"cd {WORKSPACE_STR} && screen -dmS telegram claude --channels plugin:telegram@claude-plugins-official --dangerously-skip-permissions",
-    "discord-channel": f"cd {WORKSPACE_STR} && screen -dmS discord-channel claude --channels plugin:discord@claude-plugins-official --dangerously-skip-permissions",
-    "imessage": f"cd {WORKSPACE_STR} && screen -dmS imessage claude --channels plugin:imessage@claude-plugins-official --dangerously-skip-permissions",
+START_CMDS: dict[str, list[str]] = {
+    "scheduler": ["uv", "run", "python", "-u", "scheduler.py"],
+    "telegram": ["screen", "-dmS", "telegram", "claude", "--channels", "plugin:telegram@claude-plugins-official", "--dangerously-skip-permissions"],
+    "discord-channel": ["screen", "-dmS", "discord-channel", "claude", "--channels", "plugin:discord@claude-plugins-official", "--dangerously-skip-permissions"],
+    "imessage": ["screen", "-dmS", "imessage", "claude", "--channels", "plugin:imessage@claude-plugins-official", "--dangerously-skip-permissions"],
 }
 
-STOP_CMDS = {
-    "scheduler": "pkill -f 'scheduler.py' 2>/dev/null",
-    "telegram": "screen -S telegram -X quit 2>/dev/null",
-    "discord-channel": "screen -S discord-channel -X quit 2>/dev/null",
-    "imessage": "screen -S imessage -X quit 2>/dev/null",
+STOP_CMDS: dict[str, list[str]] = {
+    "scheduler": ["pkill", "-f", "scheduler.py"],
+    "telegram": ["screen", "-S", "telegram", "-X", "quit"],
+    "discord-channel": ["screen", "-S", "discord-channel", "-X", "quit"],
+    "imessage": ["screen", "-S", "imessage", "-X", "quit"],
 }
 
 
 @bp.route("/api/services/<service_id>/start", methods=["POST"])
 def start_service(service_id):
-    cmd = START_CMDS.get(service_id)
-    if not cmd:
+    cmd_args = START_CMDS.get(service_id)
+    if not cmd_args:
         return jsonify({"error": f"Unknown service: {service_id}"}), 400
     try:
-        subprocess.Popen(cmd, shell=True)
+        if service_id == "scheduler":
+            log_file = open(SCHEDULER_LOG, "a")
+            subprocess.Popen(cmd_args, cwd=WORKSPACE_STR, stdout=log_file, stderr=log_file)
+        else:
+            subprocess.Popen(cmd_args, cwd=WORKSPACE_STR)
         return jsonify({"status": "started", "id": service_id})
     except Exception as e:
         return jsonify({"error": str(e)}), 500
@@ -153,8 +175,8 @@ def service_logs(service_id):
 
         # Check if running but no log yet
         try:
-            result = subprocess.run("screen -list 2>/dev/null | grep telegram", shell=True, capture_output=True, text=True, timeout=3)
-            if result.returncode == 0:
+            result = _check_process(["screen", "-list"], pipe_grep="telegram")
+            if result["running"]:
                 return jsonify({"lines": [
                     "Telegram bot is running.",
                     "Log file will populate as messages are processed.",
@@ -162,7 +184,7 @@ def service_logs(service_id):
                     "If started before this update, restart with Stop → Start",
                     "to enable logging.",
                     "",
-                    f"Screen: {result.stdout.strip()}",
+                    f"Screen: {result['detail']}",
                 ]})
         except Exception:
             pass
@@ -187,8 +209,8 @@ def service_logs(service_id):
 
         # Check if running but no log yet
         try:
-            result = subprocess.run("ps aux | grep '[s]cheduler.py'", shell=True, capture_output=True, text=True, timeout=3)
-            if result.returncode == 0 and result.stdout.strip():
+            result = _check_process(["ps", "aux"], pipe_grep="scheduler.py")
+            if result["running"]:
                 return jsonify({"lines": [
                     "Scheduler is running.",
                     "Log file will populate as routines execute.",
@@ -205,14 +227,14 @@ def service_logs(service_id):
         screen_name = service_id
         label = "Discord channel" if service_id == "discord-channel" else "iMessage channel"
         try:
-            result = subprocess.run(f"screen -list 2>/dev/null | grep {screen_name}", shell=True, capture_output=True, text=True, timeout=3)
-            if result.returncode == 0:
+            result = _check_process(["screen", "-list"], pipe_grep=screen_name)
+            if result["running"]:
                 return jsonify({"lines": [
                     f"{label} is running.",
                     "Logs are available in the screen session.",
                     f"Attach with: make {screen_name}-attach",
                     "",
-                    f"Screen: {result.stdout.strip()}",
+                    f"Screen: {result['detail']}",
                 ]})
         except Exception:
             pass
@@ -223,11 +245,11 @@ def service_logs(service_id):
 
 @bp.route("/api/services/<service_id>/stop", methods=["POST"])
 def stop_service(service_id):
-    cmd = STOP_CMDS.get(service_id)
-    if not cmd:
+    cmd_args = STOP_CMDS.get(service_id)
+    if not cmd_args:
         return jsonify({"error": f"Unknown service: {service_id}"}), 400
     try:
-        subprocess.run(cmd, shell=True, timeout=5)
+        subprocess.run(cmd_args, timeout=5, stderr=subprocess.DEVNULL)
         return jsonify({"status": "stopped", "id": service_id})
     except Exception as e:
         return jsonify({"error": str(e)}), 500

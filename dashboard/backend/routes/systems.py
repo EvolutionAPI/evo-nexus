@@ -1,5 +1,6 @@
 """Systems CRUD — manage registered applications/services."""
 
+import re
 import subprocess
 from flask import Blueprint, request, jsonify, abort
 from flask_login import login_required
@@ -7,13 +8,24 @@ from models import db, System
 
 bp = Blueprint("systems", __name__)
 
+# Only allow alphanumeric, hyphens, underscores, dots, and slashes in container names/images
+_SAFE_DOCKER_NAME = re.compile(r'^[a-zA-Z0-9][a-zA-Z0-9._/-]*$')
+
+
+def _validate_container_name(name: str) -> str:
+    """Validate and return a safe container name, or raise ValueError."""
+    if not name or not _SAFE_DOCKER_NAME.match(name):
+        raise ValueError(f"Invalid container name: {name!r}")
+    return name
+
 
 def _get_docker_status(container_name: str) -> dict:
     """Check if a Docker container is running."""
     try:
+        name = _validate_container_name(container_name)
         result = subprocess.run(
-            f'docker ps --filter "name={container_name}" --format "{{{{.Status}}}}\\t{{{{.Ports}}}}"',
-            shell=True, capture_output=True, text=True, timeout=5
+            ["docker", "ps", "--filter", f"name={name}", "--format", "{{.Status}}\t{{.Ports}}"],
+            capture_output=True, text=True, timeout=5
         )
         if result.returncode == 0 and result.stdout.strip():
             parts = result.stdout.strip().split('\t')
@@ -102,7 +114,8 @@ def start_system(system_id):
     if not system.container:
         abort(400, description="No container configured")
     try:
-        subprocess.run(f"docker start {system.container}", shell=True, timeout=10)
+        name = _validate_container_name(system.container)
+        subprocess.run(["docker", "start", name], timeout=10)
         return jsonify({"status": "started", "container": system.container})
     except Exception as e:
         return jsonify({"error": str(e)}), 500
@@ -115,7 +128,8 @@ def stop_system(system_id):
     if not system.container:
         abort(400, description="No container configured")
     try:
-        subprocess.run(f"docker stop {system.container}", shell=True, timeout=15)
+        name = _validate_container_name(system.container)
+        subprocess.run(["docker", "stop", name], timeout=15)
         return jsonify({"status": "stopped", "container": system.container})
     except Exception as e:
         return jsonify({"error": str(e)}), 500
@@ -129,17 +143,19 @@ def update_container(system_id):
     if not system.container:
         abort(400, description="No container configured")
     try:
+        name = _validate_container_name(system.container)
         # Get image name
         result = subprocess.run(
-            f'docker inspect --format="{{{{.Config.Image}}}}" {system.container}',
-            shell=True, capture_output=True, text=True, timeout=5
+            ["docker", "inspect", "--format={{.Config.Image}}", name],
+            capture_output=True, text=True, timeout=5
         )
         image = result.stdout.strip().strip('"') if result.returncode == 0 else None
 
-        subprocess.run(f"docker stop {system.container}", shell=True, timeout=15)
+        subprocess.run(["docker", "stop", name], timeout=15)
         if image:
-            subprocess.run(f"docker pull {image}", shell=True, timeout=120)
-        subprocess.run(f"docker start {system.container}", shell=True, timeout=10)
+            _validate_container_name(image)  # validate image name too
+            subprocess.run(["docker", "pull", image], timeout=120)
+        subprocess.run(["docker", "start", name], timeout=10)
         return jsonify({"status": "updated", "container": system.container, "image": image})
     except Exception as e:
         return jsonify({"error": str(e)}), 500

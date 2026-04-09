@@ -169,6 +169,11 @@ def run_task_now(task_id):
 
 def _execute_task(task_id: int):
     """Execute a scheduled task. Must be called within app context."""
+    import os
+    import shutil
+    import sys
+    from pathlib import Path
+
     task = ScheduledTask.query.get(task_id)
     if not task or task.status == "running":
         return
@@ -178,43 +183,57 @@ def _execute_task(task_id: int):
     db.session.commit()
 
     try:
-        import os
-        workspace = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
-        python_cmd = "uv run python" if os.system("command -v uv > /dev/null 2>&1") == 0 else "python3"
+        workspace = Path(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))))
 
-        # Sanitize payload for shell (replace quotes)
-        safe_payload = task.payload.replace('"', '\\"').replace("'", "\\'")
-        agent_arg = f', agent="{task.agent}"' if task.agent else ""
+        if task.type in ("skill", "prompt"):
+            # Import runner directly instead of shelling out
+            runner_path = str(workspace / "ADWs")
+            if runner_path not in sys.path:
+                sys.path.insert(0, runner_path)
 
-        if task.type == "skill":
-            cmd = (
-                f'cd {workspace} && {python_cmd} -c "'
-                f"import sys; sys.path.insert(0, 'ADWs'); "
-                f"from runner import run_skill; "
-                f"r = run_skill('{safe_payload}', log_name='task-{task.id}', timeout=600{agent_arg}); "
-                f"print(r.get('stdout', '')[:2000])\""
-            )
-        elif task.type == "prompt":
-            cmd = (
-                f'cd {workspace} && {python_cmd} -c "'
-                f"import sys; sys.path.insert(0, 'ADWs'); "
-                f"from runner import run_claude; "
-                f"r = run_claude('{safe_payload}', log_name='task-{task.id}', timeout=600{agent_arg}); "
-                f"print(r.get('stdout', '')[:2000])\""
-            )
+            from runner import run_skill, run_claude
+
+            if task.type == "skill":
+                result = run_skill(
+                    task.payload,
+                    log_name=f"task-{task.id}",
+                    timeout=600,
+                    agent=task.agent or None,
+                )
+            else:
+                result = run_claude(
+                    task.payload,
+                    log_name=f"task-{task.id}",
+                    timeout=600,
+                    agent=task.agent or None,
+                )
+
+            task.status = "completed" if result.get("success") else "failed"
+            task.result_summary = (result.get("stdout", "") or "")[:5000]
+            if not result.get("success"):
+                task.error = (result.get("stderr", "") or "")[:2000]
+
         elif task.type == "script":
-            script_path = os.path.join(workspace, "ADWs", "routines", task.payload)
-            cmd = f'cd {workspace} && {python_cmd} {script_path}'
+            # Validate script path is within ADWs/routines/
+            script_path = (workspace / "ADWs" / "routines" / task.payload).resolve()
+            allowed_dir = (workspace / "ADWs" / "routines").resolve()
+            if not str(script_path).startswith(str(allowed_dir)):
+                raise ValueError(f"Script path escapes ADWs/routines/: {task.payload}")
+            if not script_path.exists():
+                raise FileNotFoundError(f"Script not found: {task.payload}")
+
+            python_bin = shutil.which("uv")
+            cmd_args = ["uv", "run", "python", str(script_path)] if python_bin else ["python3", str(script_path)]
+            proc = subprocess.run(
+                cmd_args, capture_output=True, text=True, timeout=900, cwd=str(workspace)
+            )
+            task.status = "completed" if proc.returncode == 0 else "failed"
+            task.result_summary = (proc.stdout or "")[:5000]
+            if proc.returncode != 0:
+                task.error = (proc.stderr or "")[:2000]
+
         else:
             raise ValueError(f"Unknown task type: {task.type}")
-
-        result = subprocess.run(
-            cmd, shell=True, capture_output=True, text=True, timeout=900
-        )
-        task.status = "completed" if result.returncode == 0 else "failed"
-        task.result_summary = (result.stdout or "")[:5000]
-        if result.returncode != 0:
-            task.error = (result.stderr or "")[:2000]
 
     except subprocess.TimeoutExpired:
         task.status = "failed"
