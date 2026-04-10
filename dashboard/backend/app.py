@@ -270,6 +270,12 @@ def social_accounts():
     from env_manager import all_platforms_with_accounts
     return {"platforms": all_platforms_with_accounts()}
 
+@app.route("/api/social-accounts/<platform>/<int:index>", methods=["DELETE"])
+def delete_social_account(platform, index):
+    from env_manager import delete_account, all_platforms_with_accounts
+    delete_account(platform, index)
+    return {"ok": True, "platforms": all_platforms_with_accounts()}
+
 # --------------- Serve React build ---------------
 FRONTEND_DIST = Path(__file__).resolve().parent.parent / "frontend" / "dist"
 

@@ -125,9 +125,8 @@ export default function Integrations() {
 
   const handleDisconnect = async (platformId: string, index: number) => {
     try {
-      await fetch(`/disconnect/${platformId}/${index}`, { method: 'POST' })
-      const socialData = await api.get('/social-accounts')
-      setPlatforms(socialData?.platforms || [])
+      const data = await api.delete(`/social-accounts/${platformId}/${index}`)
+      setPlatforms(data?.platforms || [])
     } catch (e) {
       console.error(e)
     }

@@ -29,6 +29,78 @@ def _load_dotenv():
 _load_dotenv()
 
 BASE_URL = "https://www.googleapis.com/youtube/v3"
+TOKEN_URL = "https://oauth2.googleapis.com/token"
+
+
+# ── OAuth refresh ────────────────────────────────────
+
+def _env_path() -> Path:
+    return Path(__file__).resolve().parents[4] / ".env"
+
+
+def _set_env_var(key: str, value: str):
+    """Upsert a key in .env (mirror of social-auth/env_manager.set_env)."""
+    path = _env_path()
+    lines = []
+    found = False
+    if path.exists():
+        with open(path) as f:
+            for line in f:
+                stripped = line.strip()
+                if stripped and not stripped.startswith("#") and "=" in stripped:
+                    k = stripped.split("=", 1)[0].strip()
+                    if k == key:
+                        lines.append(f"{key}={value}\n")
+                        found = True
+                        continue
+                lines.append(line if line.endswith("\n") else line + "\n")
+    if not found:
+        lines.append(f"{key}={value}\n")
+    with open(path, "w") as f:
+        f.writelines(lines)
+
+
+def _refresh_access_token(account: dict) -> str:
+    """Exchange refresh_token for a new access_token. Persists to .env and updates account in place. Returns new token or empty string."""
+    refresh_token = account.get("refresh_token", "")
+    client_id = os.environ.get("YOUTUBE_OAUTH_CLIENT_ID", "")
+    client_secret = os.environ.get("YOUTUBE_OAUTH_CLIENT_SECRET", "")
+    if not (refresh_token and client_id and client_secret):
+        return ""
+
+    data = urllib.parse.urlencode({
+        "refresh_token": refresh_token,
+        "client_id": client_id,
+        "client_secret": client_secret,
+        "grant_type": "refresh_token",
+    }).encode()
+
+    req = urllib.request.Request(
+        TOKEN_URL,
+        data=data,
+        method="POST",
+        headers={"Content-Type": "application/x-www-form-urlencoded"},
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=15) as resp:
+            tok = json.loads(resp.read().decode("utf-8"))
+    except urllib.error.HTTPError as e:
+        sys.stderr.write(f"[youtube] refresh failed: {e.read().decode('utf-8', 'replace')[:300]}\n")
+        return ""
+    except Exception as e:
+        sys.stderr.write(f"[youtube] refresh error: {e}\n")
+        return ""
+
+    new_token = tok.get("access_token", "")
+    if not new_token:
+        return ""
+
+    idx = account.get("index", "")
+    env_key = f"SOCIAL_YOUTUBE_{idx}_ACCESS_TOKEN" if idx else "YOUTUBE_ACCESS_TOKEN"
+    _set_env_var(env_key, new_token)
+    os.environ[env_key] = new_token
+    account["access_token"] = new_token
+    return new_token
 
 
 # ── Account discovery ────────────────────────────────
@@ -81,8 +153,9 @@ def _get_account(label_or_index: str = None) -> dict:
 
 # ── API calls ────────────────────────────────────────
 
-def _api_get(path: str, params: dict, account: dict) -> dict:
-    """Make authenticated GET request."""
+def _api_get(path: str, params: dict, account: dict, _retried: bool = False) -> dict:
+    """Make authenticated GET request. Auto-refreshes expired OAuth tokens once on 401."""
+    params = dict(params)  # don't mutate caller's dict
     if account.get("access_token"):
         params["access_token"] = account["access_token"]
     elif account.get("api_key"):
@@ -97,6 +170,11 @@ def _api_get(path: str, params: dict, account: dict) -> dict:
         with urllib.request.urlopen(url, timeout=15) as resp:
             return json.loads(resp.read().decode("utf-8"))
     except urllib.error.HTTPError as e:
+        # 401 Unauthorized — try to refresh access_token once
+        if e.code == 401 and not _retried and account.get("refresh_token"):
+            new_token = _refresh_access_token(account)
+            if new_token:
+                return _api_get(path, {k: v for k, v in params.items() if k != "access_token"}, account, _retried=True)
         body = e.read().decode("utf-8", errors="replace")
         return {"error": f"HTTP {e.code}", "detail": body[:500]}
     except Exception as e:

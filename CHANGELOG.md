@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.13.1] - 2026-04-10
+
+### Fixed
+
+- **Dashboard — delete social account now works** — the trash icon on `/integrations` was calling `POST /disconnect/{platform}/{index}`, a route that only exists in the standalone `social-auth` Flask app (port 8765), not in the dashboard backend (port 8080), so clicks silently 404'd. Added `DELETE /api/social-accounts/<platform>/<int:index>` to `dashboard/backend/app.py` reusing `env_manager.delete_account`, and updated `dashboard/frontend/src/pages/Integrations.tsx` to call `api.delete()` and consume the returned `{platforms}` payload in a single round-trip.
+- **YouTube — automatic OAuth token refresh** — `SOCIAL_YOUTUBE_*_ACCESS_TOKEN` expires after ~1h, forcing a manual reconnect through social-auth. The `social-auth` OAuth flow already requested `access_type=offline` + `prompt=consent` and saved `REFRESH_TOKEN`, but `youtube_client.py` never used it. Added `_refresh_access_token(account)` that exchanges the refresh token at `https://oauth2.googleapis.com/token`, persists the new access token to `.env` (`SOCIAL_YOUTUBE_{N}_ACCESS_TOKEN`) and `os.environ`, and made `_api_get` auto-retry once on `HTTP 401` when a refresh token is available. Transparent to all callers (skills, routines, agents). Requires `YOUTUBE_OAUTH_CLIENT_ID` and `YOUTUBE_OAUTH_CLIENT_SECRET` in `.env` (already present for any OAuth-connected account).
+
 ## [0.13.0] - 2026-04-10
 
 ### Added
