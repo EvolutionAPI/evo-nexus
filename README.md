@@ -45,7 +45,7 @@ It turns a single Claude Code installation into a team of **37 specialized agent
 ## Key Features
 
 - **16 Core Agents + Custom** — Ops, Finance, Projects, Community, Social, Strategy, Sales, Courses, Personal, Knowledge, Marketing, HR, Customer Success, Legal, Product, Data — plus user-created `custom-*` agents (gitignored)
-- **~130 Skills + Custom** — organized by domain prefix (`social-`, `fin-`, `int-`, `prod-`, `mkt-`, `gog-`, `obs-`, `discord-`, `pulse-`, `sage-`, `hr-`, `legal-`, `ops-`, `cs-`, `data-`, `pm-`)
+- **~138 Skills + Custom** — organized by domain prefix (`social-`, `fin-`, `int-`, `prod-`, `mkt-`, `gog-`, `obs-`, `discord-`, `pulse-`, `sage-`, `hr-`, `legal-`, `ops-`, `cs-`, `data-`, `pm-`). Includes `prod-activation-plan` — the canonical skill for producing phased activation plans (index + folder-per-phase + file-per-item) used by Oracle
 - **7 Core + 20 Custom Routines** — daily, weekly, and monthly ADWs managed by a scheduler (core routines ship with the repo; custom routines are user-created and gitignored)
 - **Web Dashboard** — React + Flask app with auth, roles, web terminal, service management
 - **17 Integrations** — Google Calendar, Gmail, Linear, GitHub, Discord, Telegram, Stripe, Omie, Fathom, Todoist, YouTube, Instagram, LinkedIn, Evolution API, Evolution Go, Evo CRM, and more
@@ -114,7 +114,7 @@ The setup wizard (`make setup`) checks for all prerequisites before proceeding.
 
 ## Quick Start
 
-> **Começando agora?** Depois de instalar, abra o Claude Code e chame **`/oracle`**. Ele é o ponto de entrada oficial do EvoNexus: conduz o setup inicial, entrevista você sobre o seu negócio, mostra o que a ferramenta pode automatizar pra você, e entrega um plano de implementação faseado. Você nunca fica com dúvida sobre o próximo passo.
+> **Starting out?** After installing, open Claude Code and call **`/oracle`**. It's the official entry point of EvoNexus: runs the initial setup, interviews you about your business, shows what the toolkit can automate for you, and delivers a **phased activation plan** — an index file at the top + one folder per phase + one file per item, each with suggested agent team, dependencies, and pending decisions. The plan is materialized by the `prod-activation-plan` skill (workspace canonical pattern) so you never have to guess the next step.
 
 ### Method 1 — One command (recommended)
 
@@ -189,9 +189,26 @@ make scheduler
 
 Runs all enabled routines on schedule (morning briefing, email triage, community pulse, financial reports, etc). Configure schedules in `config/routines.yaml`.
 
-### 5. Use Claude Code
+### 5. Use Claude Code — start with `/oracle`
 
-Open Claude Code in the project directory — it reads `CLAUDE.md` automatically.
+Open Claude Code in the project directory — it reads `CLAUDE.md` automatically. The **first thing you should do** is call `/oracle`:
+
+```bash
+/oracle
+```
+
+Oracle will:
+1. Detect workspace state (fresh install vs. configured)
+2. Interview you about your business, pain points and priorities
+3. Map workspace capabilities to your pains (via @scout-explorer)
+4. Present the "wow" report — what can be automated for you
+5. Delegate the plan structure to @compass-planner
+6. **Materialize the plan using the `prod-activation-plan` skill** — creates an index file + phase folders + item files, each with suggested agent team, dependencies and pending decisions
+7. Hand you the plan with **3 autonomy paths**: Guided / Autonomous / Delegated
+
+The plan lives at `workspace/development/plans/[C]{plan-name}-{date}.md` (index) + `fase-*/` folders. You can discuss or implement any item in isolation by pointing to its file.
+
+### Available slash commands
 
 ```bash
 # Use slash commands to invoke agents
@@ -229,7 +246,7 @@ A full web UI at `http://localhost:8080`:
 | **Agents** | View agent definitions and system prompts |
 | **Routines** | Metrics per routine (runs, success rate, cost) + manual run |
 | **Tasks** | Schedule one-off actions (skill, prompt, script) at a specific date/time |
-| **Skills** | Browse all ~137 skills by category (~112 business + 25 dev-*) |
+| **Skills** | Browse all ~138 skills by category (~113 business + 25 dev-*) |
 | **Templates** | Preview HTML report templates |
 | **Services** | Start/stop scheduler, channels (Telegram, Discord, iMessage) with live logs |
 | **Memory** | Browse agent and global memory files |
@@ -288,7 +305,7 @@ evo-nexus/
 ├── .claude/
 │   ├── agents/          — 16 agent system prompts
 │   ├── commands/        — 16 slash commands
-│   ├── skills/          — ~137 skills by prefix (~112 business + 25 dev-*) (+ custom)
+│   ├── skills/          — ~138 skills by prefix (~113 business + 25 dev-*) (+ custom)
 │   └── templates/html/  — 2 core + custom HTML templates
 ├── ADWs/
 │   ├── runner.py        — execution engine (logs + metrics + notifications)

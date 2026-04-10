@@ -2234,12 +2234,19 @@ make scheduler
 
 This starts the scheduler that runs routines at their configured times (see `config/routines.yaml`).
 
-### 5. Use Claude Code
+### 5. Use Claude Code — start with `/oracle`
 
-Just open Claude Code in this directory. It reads `CLAUDE.md` automatically and has access to all agents and skills.
+Open Claude Code in this directory. It reads `CLAUDE.md` automatically and has access to all agents and skills.
+
+**First thing to run: `/oracle`.** Oracle is the official entry point — it interviews you about your business, maps workspace capabilities to your pain points, and delivers a **phased activation plan** through the `prod-activation-plan` skill (index file + folder-per-phase + file-per-item, each with suggested agent team and pending decisions). You never have to guess the next step.
 
 ```bash
-# Invoke agents directly
+/oracle        # Start here — business discovery + activation plan
+```
+
+After the plan is ready, you can invoke individual agents:
+
+```bash
 /clawdia       # Operations hub
 /flux          # Financial analysis
 /atlas         # Project management

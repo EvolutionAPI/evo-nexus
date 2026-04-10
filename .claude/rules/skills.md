@@ -12,7 +12,7 @@ The workspace has skills in two layers:
 | `dev-` | Engineering Layer (autopilot, plan, ralplan, deep-interview, deep-dive, external-context, trace, verify, ultraqa, visual-verdict, ai-slop-cleaner, sciomc, team, ccg, ralph, mcp-setup, deepinit, project-session-manager, configure-notifications, release, cancel, remember, ask, learner, skillify) | 25 |
 | `int-` | Integrations (Fathom, Todoist, Stripe, Omie, Discord, Telegram, Linear, GitHub, YouTube, Instagram, LinkedIn, WhatsApp, Licensing) | 13 |
 | `fin-` | Finance (statements, journal, reconciliation, SOX, pulse, close) | 11 |
-| `prod-` | Productivity (morning, eod, review, memory, dashboard, trends, licensing) | 9 |
+| `prod-` | Productivity (morning, eod, review, memory, dashboard, trends, licensing, activation-plan) | 10 |
 | `ops-` | Operations (capacity plan, status report, change request, process doc, runbook, optimization, vendor review, risk assessment, compliance) | 9 |
 | `legal-` | Legal / Compliance (contract review, compliance check, NDA triage, brief, response, risk assessment, meeting briefing, signature, vendor check) | 9 |
 | `hr-` | HR / People (recruiting, performance review, onboarding, comp analysis, draft offer, interview prep, org planning, people report, policy lookup) | 9 |

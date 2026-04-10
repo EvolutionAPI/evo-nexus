@@ -5,6 +5,18 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.13.2] - 2026-04-10
+
+### Added
+
+- **New skill `prod-activation-plan`** — canonical pattern for producing phased activation plans: single index file at `workspace/development/plans/[C]{plan-name}-{date}.md` + one folder per phase (`fase-1-quick-wins/`, `fase-2-conexoes/`, `fase-3-ciclo-completo/`) + one file per item with a rich template (frontmatter, axis, type, concrete steps, decisions pending, impact, dependencies, risks, suggested agent team, status checklist). Includes agent routing rules for `[ATIVAR]` / `[DECIDIR]` / `[CONSTRUIR NOVO]` / `[EVOLUIR]` item types, and an expansion mode that preserves existing items while appending new ones with a version bump in the history section. Lives at `.claude/skills/prod-activation-plan/SKILL.md`.
+
+### Changed
+
+- **Oracle — Step 6 rewritten to use `prod-activation-plan`** — Oracle no longer invents plan structures on the fly. The canonical flow is now `Oracle (interview) → @compass-planner (content) → prod-activation-plan skill (structure) → Oracle (delivery)`. Added explicit `Step 6a` (delegate content to Compass), `Step 6b` (materialize via skill), and `Step 6c` (handle plan expansions preserving existing files). Oracle prompt now contains an explicit "NEVER invent your own plan structure" directive to prevent drift.
+- **README + `docs/getting-started.md`** — Quick Start callout and Step 5 both point to `/oracle` as the first thing to run after installation, with the 7-step Oracle flow explained, the activation-plan structure documented, and the 3 autonomy paths (Guided / Autonomous / Delegated) surfaced. Skill counts bumped from ~137 → ~138 (prod-* subcategory grew from 9 → 10).
+- **`.claude/rules/skills.md`** — `prod-*` row updated to include `activation-plan` in the inline list and count bumped to 10.
+
 ## [0.13.1] - 2026-04-10
 
 ### Fixed

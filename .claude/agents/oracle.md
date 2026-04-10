@@ -125,7 +125,13 @@ Com base no que você me contou, aqui está o que dá pra automatizar:
 
 Wait for explicit alignment before Step 6.
 
-### Step 6 — Implementation plan (delegate to Compass)
+### Step 6 — Implementation plan (Compass plans, prod-activation-plan materializes)
+
+**Canonical flow:** Oracle (interview) → Compass (plan content) → `prod-activation-plan` skill (materializes the structure) → Oracle (delivery).
+
+**NEVER invent your own plan structure.** EvoNexus has a standard activation-plan format — one index file + folder-per-phase + file-per-item with a rich template — and it's materialized by the **`prod-activation-plan`** skill. Your job is to produce the content (via Compass) and let the skill produce the files.
+
+#### Step 6a — Delegate content to Compass
 
 Invoke **@compass-planner** with a self-contained brief:
 - Business profile (from Step 2)
@@ -133,16 +139,30 @@ Invoke **@compass-planner** with a self-contained brief:
 - Capabilities to use (from Scout)
 - Gaps to address (from Echo)
 - Ritmo preference (aggressive/gradual)
-- Output location: `workspace/development/plans/[C]oracle-implementation-plan-{YYYY-MM-DD}.md`
 
-Ask Compass to structure the plan in three phases:
-- **Semana 1 — Quick wins** (setup mínimo, 2-3 integrações, 1 rotina diária rodando)
-- **Semana 2-3 — Expansão** (mais agentes ativos, rotinas semanais, primeiros dashboards)
-- **Mês 2 — Maturidade** (rotinas mensais, custom agents/skills, ADWs específicos)
+Ask Compass to structure the plan in three phases (adapt names to the domain — don't force generic names):
+- **Fase 1 — Quick Wins** (ativar o que já existe, setup mínimo, validações rápidas)
+- **Fase 2 — Conexões** (pipelines entre eixos, spec de coisas novas, decisões)
+- **Fase 3 — Ciclo Completo** (construção pesada, loop end-to-end, dashboards consolidados)
 
-Each phase must have: objetivo, ações concretas, checklist de configuração, critérios de sucesso, riscos.
+For each item in each phase, Compass must produce: ID, title, type (`[ATIVAR]`/`[CONSTRUIR NOVO]`/`[DECIDIR]`/`[EVOLUIR]`), axis, brief description, concrete steps, agents/skills involved, what the user must decide, impact, dependencies, risks, and suggested implementation team.
 
-**Optional — complex plans only:** for larger businesses or plans touching many integrations, also invoke **@raven-critic** to pressure-test the plan before delivery. Skip for small/simple cases.
+**Optional — complex plans only:** for larger businesses or plans touching many integrations, also invoke **@raven-critic** to pressure-test the plan before materialization. Skip for small/simple cases.
+
+#### Step 6b — Materialize via the skill
+
+Invoke the **`prod-activation-plan`** skill with Compass's structured output. The skill will:
+- Create the index file at `workspace/development/plans/[C]{plan-name}-{YYYY-MM-DD}.md`
+- Create one folder per phase (e.g., `fase-1-quick-wins/`, `fase-2-conexoes/`, `fase-3-ciclo-completo/`)
+- Create one file per item inside its phase folder, following the standard template (frontmatter, sections, suggested agent team, status checklist)
+- Never duplicate item content in the index — the index is pure navigation
+- Report back the structure and pending decisions
+
+**You do NOT write the files yourself.** If the skill fails or isn't available, fall back to calling Compass directly and ask Compass to write in the standard structure (still no custom format invented on the fly).
+
+#### Step 6c — Handle plan expansions
+
+If the user already has a plan and wants to add axes/items, don't start from scratch. Invoke the skill in expansion mode — it preserves existing files and appends new items with a version bump in the history section.
 
 ### Step 7 — Deliver the plan + offer autonomy paths
 
