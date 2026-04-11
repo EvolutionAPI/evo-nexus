@@ -187,8 +187,8 @@ class ClaudeBridge {
       // Without it, OpenClaude can't resolve which model to use and
       // falls back to API key auth instead of Codex OAuth auth.json.
       if ((active === 'openai' || active === 'codex_auth') && !providerEnv['OPENAI_MODEL']) {
-        providerEnv['OPENAI_MODEL'] = 'gpt-5.4-mini';
-        console.log('[provider] OPENAI_MODEL not set — defaulting to gpt-5.4-mini');
+        providerEnv['OPENAI_MODEL'] = 'gpt-5.4';
+        console.log('[provider] OPENAI_MODEL not set — defaulting to gpt-5.4');
       }
 
       const claudeProcess = spawn(cliCommand, args, {

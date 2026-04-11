@@ -292,7 +292,7 @@ def choose_provider() -> str:
             model = ask("  OPENAI_MODEL", prov.get("default_model", "gpt-4.1"))
             env_vars = {"CLAUDE_CODE_USE_OPENAI": "1", "OPENAI_API_KEY": api_key, "OPENAI_MODEL": model}
         else:
-            model = ask("  OPENAI_MODEL", "gpt-5.4-mini")
+            model = ask("  OPENAI_MODEL", "gpt-5.4")
             env_vars = {"CLAUDE_CODE_USE_OPENAI": "1", "OPENAI_MODEL": model}
             print(f"\n  {GREEN}✓{RESET} Provider configurado: OpenAI (Codex OAuth)")
             print(f"  {YELLOW}!{RESET} Para completar a autenticacao, acesse o Dashboard")
