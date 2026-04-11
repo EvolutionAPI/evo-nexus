@@ -727,19 +727,14 @@ def main():
   {GREEN}Setup concluido!{RESET}
   {GREEN}{'='*50}{RESET}
 
-  Para completar a configuracao, acesse:
+  Dashboard disponivel em:
 
     {BOLD}{dashboard_url}{RESET}
 
-  O que falta fazer no Dashboard:
-    1. Criar sua conta de administrador
-    2. Configurar o AI Provider (Providers → Login com OpenAI)
-    3. Configurar suas integracoes (.env)
-
-  Inicie o dashboard agora com:
-    {BOLD}make dashboard-app{RESET}
-
-  Depois acesse: {BOLD}{dashboard_url}{RESET}
+  Proximo passo:
+    1. Acesse o link acima e crie sua conta de administrador
+    2. Va em {BOLD}Providers{RESET} e configure o AI Provider
+    3. Abra um agente e comece a usar!
 """)
     else:
         print(f"""
