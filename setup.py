@@ -702,6 +702,8 @@ def main():
     if sudo_user and os.getuid() == 0:
         print(f"  {DIM}Fixing file ownership for {sudo_user}...{RESET}")
         os.system(f"chown -R {sudo_user}:{sudo_user} {WORKSPACE}")
+        # Ensure .venv binaries are executable after chown
+        os.system(f"chmod -R u+x {WORKSPACE}/.venv/bin/ 2>/dev/null")
         run_as = f"su - {sudo_user} -c"
         print(f"  {GREEN}✓{RESET} Ownership fixed")
     else:
