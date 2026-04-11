@@ -148,7 +148,10 @@ export default function Providers() {
         }
       }
 
+      // Save env vars
       await api.post(`/providers/${configOpen}/config`, { env_vars: finalVars })
+      // Activate as the current provider
+      await api.post('/providers/active', { provider_id: configOpen })
       setConfigOpen(null)
       load()
     } catch (e) {
