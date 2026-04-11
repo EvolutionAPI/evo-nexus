@@ -24,7 +24,7 @@
     },
     "openai": {
       "name": "OpenAI",
-      "description": "GPT-4o, GPT-4.1, o3 via OpenAI API",
+      "description": "GPT-4.x via API Key ou GPT-5.x via Codex OAuth",
       "cli_command": "openclaude",
       "env_vars": {
         "CLAUDE_CODE_USE_OPENAI": "1",
@@ -35,7 +35,7 @@
       "requires_logout": true
     },
     "gemini": {
-      "name": "Google Gemini",
+      "name": "Google Gemini (em breve)",
       "description": "Gemini 2.5 Pro/Flash via Google AI",
       "cli_command": "openclaude",
       "env_vars": {
@@ -44,21 +44,11 @@
         "GEMINI_MODEL": ""
       },
       "default_model": "gemini-2.5-pro",
-      "requires_logout": true
-    },
-    "codex_auth": {
-      "name": "Codex Auth (OpenAI via OAuth)",
-      "description": "Usa autenticacao do Codex CLI para acessar modelos OpenAI",
-      "cli_command": "openclaude",
-      "env_vars": {
-        "CLAUDE_CODE_USE_OPENAI": "1",
-        "OPENAI_API_KEY": ""
-      },
       "requires_logout": true,
-      "setup_hint": "Run 'codex login' first, then copy the API key"
+      "coming_soon": true
     },
     "bedrock": {
-      "name": "AWS Bedrock",
+      "name": "AWS Bedrock (em breve)",
       "description": "Claude via AWS Bedrock",
       "cli_command": "openclaude",
       "env_vars": {
@@ -66,10 +56,11 @@
         "AWS_REGION": "",
         "AWS_BEARER_TOKEN_BEDROCK": ""
       },
-      "requires_logout": true
+      "requires_logout": true,
+      "coming_soon": true
     },
     "vertex": {
-      "name": "Google Vertex AI",
+      "name": "Google Vertex AI (em breve)",
       "description": "Claude via Google Cloud Vertex AI",
       "cli_command": "openclaude",
       "env_vars": {
@@ -78,7 +69,8 @@
         "CLOUD_ML_REGION": ""
       },
       "default_region": "us-east5",
-      "requires_logout": true
+      "requires_logout": true,
+      "coming_soon": true
     }
   }
 }

@@ -107,6 +107,106 @@ def check_prerequisites():
     return True
 
 
+def configure_access() -> dict:
+    """Configure how the dashboard will be accessed (local or domain with SSL)."""
+    print(f"\n  {BOLD}Dashboard Access{RESET}\n")
+    print(f"    {BOLD}1{RESET}) Local only (http://localhost:8080)")
+    print(f"    {BOLD}2{RESET}) Domain with SSL (recommended for remote servers)")
+
+    choice = ask("Choice", "1")
+    if choice != "2":
+        return {"mode": "local", "url": "http://localhost:8080"}
+
+    domain = ask("Domain", "")
+    if not domain:
+        print(f"  {YELLOW}!{RESET} No domain provided, using local mode")
+        return {"mode": "local", "url": "http://localhost:8080"}
+
+    # Check/install nginx
+    if not shutil.which("nginx"):
+        print(f"  {YELLOW}!{RESET} nginx not found")
+        install = ask("Install nginx? (y/n)", "y")
+        if install.lower() == "y":
+            os.system("apt install -y nginx 2>/dev/null || yum install -y nginx 2>/dev/null")
+        if not shutil.which("nginx"):
+            print(f"  {RED}✗{RESET} nginx installation failed, using local mode")
+            return {"mode": "local", "url": "http://localhost:8080"}
+
+    # SSL certificate
+    ssl_mode = ask("SSL certificate (1=certbot auto, 2=manual path)", "1")
+    if ssl_mode == "1":
+        if not shutil.which("certbot"):
+            print(f"  {DIM}Installing certbot...{RESET}")
+            os.system("apt install -y certbot python3-certbot-nginx 2>/dev/null")
+        print(f"  {DIM}Obtaining SSL certificate...{RESET}")
+        ret = os.system(f"certbot certonly --standalone -d {domain} --non-interactive --agree-tos --register-unsafely-without-email 2>/dev/null")
+        if ret != 0:
+            print(f"  {YELLOW}!{RESET} certbot failed — try manual SSL")
+            ssl_mode = "2"
+        else:
+            ssl_cert = f"/etc/letsencrypt/live/{domain}/fullchain.pem"
+            ssl_key = f"/etc/letsencrypt/live/{domain}/privkey.pem"
+
+    if ssl_mode == "2":
+        ssl_cert = ask("SSL cert path", f"/etc/nginx/ssl/{domain}.crt")
+        ssl_key = ask("SSL key path", f"/etc/nginx/ssl/{domain}.key")
+
+    # Write Nginx config
+    nginx_config = f"""server {{
+    listen 80;
+    server_name {domain};
+    return 301 https://$host$request_uri;
+}}
+
+server {{
+    listen 443 ssl;
+    server_name {domain};
+
+    ssl_certificate {ssl_cert};
+    ssl_certificate_key {ssl_key};
+    ssl_protocols TLSv1.2 TLSv1.3;
+    ssl_ciphers HIGH:!aNULL:!MD5;
+
+    location / {{
+        proxy_pass http://127.0.0.1:8080;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection "upgrade";
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_read_timeout 86400;
+    }}
+
+    location /terminal/ {{
+        proxy_pass http://127.0.0.1:32352/;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection "upgrade";
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_read_timeout 86400;
+    }}
+}}
+"""
+    try:
+        nginx_path = "/etc/nginx/sites-enabled/evonexus"
+        with open(nginx_path, "w") as f:
+            f.write(nginx_config)
+        ret = os.system("nginx -t 2>/dev/null && systemctl reload nginx 2>/dev/null")
+        if ret == 0:
+            print(f"  {GREEN}✓{RESET} Nginx configured for {domain}")
+        else:
+            print(f"  {YELLOW}!{RESET} Nginx config written but reload failed — check manually")
+    except PermissionError:
+        print(f"  {YELLOW}!{RESET} No permission to write nginx config — run setup as root")
+
+    return {"mode": "domain", "url": f"https://{domain}"}
+
+
 def choose_provider() -> str:
     """Ask the user which AI provider to use."""
     print(f"""
@@ -114,17 +214,18 @@ def choose_provider() -> str:
 
     {BOLD}1{RESET}) Anthropic (Claude nativo)         — default, no extra config
     {BOLD}2{RESET}) OpenRouter (200+ models)           — requires API key + openclaude
-    {BOLD}3{RESET}) OpenAI (GPT-4o, GPT-4.1, o3)      — requires API key + openclaude
-    {BOLD}4{RESET}) Google Gemini                      — requires API key + openclaude
-    {BOLD}5{RESET}) Codex Auth (OpenAI via OAuth)      — requires codex login + openclaude
-    {BOLD}6{RESET}) AWS Bedrock                        — requires AWS creds + openclaude
-    {BOLD}7{RESET}) Google Vertex AI                   — requires GCP creds + openclaude
+    {BOLD}3{RESET}) OpenAI (GPT-4.x / GPT-5.x)         — API key or OAuth + openclaude
+    {BOLD}4{RESET}) Google Gemini                      — coming soon
+    {BOLD}5{RESET}) AWS Bedrock                        — coming soon
+    {BOLD}6{RESET}) Google Vertex AI                   — coming soon
 """)
-    choice = ask("Provider (1-7)", "1")
+    choice = ask("Provider (1-3)", "1")
     provider_map = {
         "1": "anthropic", "2": "openrouter", "3": "openai",
-        "4": "gemini", "5": "codex_auth", "6": "bedrock", "7": "vertex",
     }
+    if choice in ("4", "5", "6"):
+        print(f"  {YELLOW}!{RESET} This provider is coming soon. Using Anthropic for now.")
+        choice = "1"
     provider_id = provider_map.get(choice, "anthropic")
 
     # Check if openclaude is needed
@@ -154,11 +255,10 @@ def choose_provider() -> str:
             "providers": {
                 "anthropic": {"name": "Anthropic (Claude nativo)", "cli_command": "claude", "env_vars": {}, "requires_logout": False},
                 "openrouter": {"name": "OpenRouter", "cli_command": "openclaude", "env_vars": {"CLAUDE_CODE_USE_OPENAI": "1", "OPENAI_BASE_URL": "", "OPENAI_API_KEY": "", "OPENAI_MODEL": ""}, "default_base_url": "https://openrouter.ai/api/v1", "default_model": "anthropic/claude-sonnet-4", "requires_logout": True},
-                "openai": {"name": "OpenAI", "cli_command": "openclaude", "env_vars": {"CLAUDE_CODE_USE_OPENAI": "1", "OPENAI_API_KEY": "", "OPENAI_MODEL": ""}, "default_model": "gpt-4.1", "requires_logout": True},
-                "gemini": {"name": "Google Gemini", "cli_command": "openclaude", "env_vars": {"CLAUDE_CODE_USE_GEMINI": "1", "GEMINI_API_KEY": "", "GEMINI_MODEL": ""}, "default_model": "gemini-2.5-pro", "requires_logout": True},
-                "codex_auth": {"name": "Codex Auth", "cli_command": "openclaude", "env_vars": {"CLAUDE_CODE_USE_OPENAI": "1", "OPENAI_API_KEY": ""}, "requires_logout": True, "setup_hint": "Run 'codex login' first"},
-                "bedrock": {"name": "AWS Bedrock", "cli_command": "openclaude", "env_vars": {"CLAUDE_CODE_USE_BEDROCK": "1", "AWS_REGION": "", "AWS_BEARER_TOKEN_BEDROCK": ""}, "requires_logout": True},
-                "vertex": {"name": "Google Vertex AI", "cli_command": "openclaude", "env_vars": {"CLAUDE_CODE_USE_VERTEX": "1", "ANTHROPIC_VERTEX_PROJECT_ID": "", "CLOUD_ML_REGION": ""}, "default_region": "us-east5", "requires_logout": True},
+                "openai": {"name": "OpenAI", "description": "GPT-4.x via API Key ou GPT-5.x via Codex OAuth", "cli_command": "openclaude", "env_vars": {"CLAUDE_CODE_USE_OPENAI": "1", "OPENAI_API_KEY": "", "OPENAI_MODEL": ""}, "default_model": "gpt-4.1", "requires_logout": True},
+                "gemini": {"name": "Google Gemini (em breve)", "cli_command": "openclaude", "env_vars": {"CLAUDE_CODE_USE_GEMINI": "1", "GEMINI_API_KEY": "", "GEMINI_MODEL": ""}, "default_model": "gemini-2.5-pro", "requires_logout": True, "coming_soon": True},
+                "bedrock": {"name": "AWS Bedrock (em breve)", "cli_command": "openclaude", "env_vars": {"CLAUDE_CODE_USE_BEDROCK": "1", "AWS_REGION": "", "AWS_BEARER_TOKEN_BEDROCK": ""}, "requires_logout": True, "coming_soon": True},
+                "vertex": {"name": "Google Vertex AI (em breve)", "cli_command": "openclaude", "env_vars": {"CLAUDE_CODE_USE_VERTEX": "1", "ANTHROPIC_VERTEX_PROJECT_ID": "", "CLOUD_ML_REGION": ""}, "default_region": "us-east5", "requires_logout": True, "coming_soon": True},
             }
         }
 
@@ -166,11 +266,30 @@ def choose_provider() -> str:
     prov = config["providers"].get(provider_id, {})
     env_vars = prov.get("env_vars", {})
 
-    if provider_id != "anthropic":
+    if provider_id == "openai":
+        print(f"\n  {BOLD}OpenAI Authentication{RESET}")
+        print(f"    {BOLD}a{RESET}) API Key (GPT-4.x)")
+        print(f"    {BOLD}b{RESET}) Codex OAuth (GPT-5.x) — via Dashboard")
+        auth_choice = ask("Auth method (a/b)", "b")
+
+        if auth_choice.lower() == "a":
+            api_key = ask("  OPENAI_API_KEY", "")
+            model = ask("  OPENAI_MODEL", prov.get("default_model", "gpt-4.1"))
+            env_vars = {"CLAUDE_CODE_USE_OPENAI": "1", "OPENAI_API_KEY": api_key, "OPENAI_MODEL": model}
+        else:
+            model = ask("  OPENAI_MODEL", "gpt-5.4-mini")
+            env_vars = {"CLAUDE_CODE_USE_OPENAI": "1", "OPENAI_MODEL": model}
+            print(f"\n  {GREEN}✓{RESET} Provider configurado: OpenAI (Codex OAuth)")
+            print(f"  {YELLOW}!{RESET} Para completar a autenticacao, acesse o Dashboard")
+            print(f"    {BOLD}Providers → Login com OpenAI{RESET}")
+
+        prov["env_vars"] = env_vars
+
+    elif provider_id != "anthropic":
         print(f"\n  {BOLD}Configure {prov.get('name', provider_id)}{RESET}")
         for key, current in env_vars.items():
             if key.startswith("CLAUDE_CODE_USE_"):
-                continue  # Flags are automatic
+                continue
             default = prov.get("default_base_url", "") if key == "OPENAI_BASE_URL" else prov.get("default_model", "") if "MODEL" in key else prov.get("default_region", "") if "REGION" in key else current
             value = ask(f"  {key}", default)
             env_vars[key] = value
@@ -469,6 +588,9 @@ def main():
     print(f"  {BOLD}Checking prerequisites...{RESET}")
     check_prerequisites()
 
+    # Dashboard access (Nginx config)
+    access_config = configure_access()
+
     # Provider choice
     print(f"  {BOLD}AI Provider{RESET}")
     provider_choice = choose_provider()
@@ -543,7 +665,7 @@ def main():
   {GREEN}Done!{RESET} Next steps:
   1. Edit {BOLD}.env{RESET} with your API keys
   2. Run: {BOLD}make dashboard-app{RESET}
-  3. Open {BOLD}http://localhost:{dashboard_port}{RESET} to create your admin account
+  3. Open {BOLD}{access_config.get('url', f'http://localhost:{dashboard_port}')}{RESET} to create your admin account
   4. Run: {BOLD}make scheduler{RESET}    — start automated routines
   5. Run: {BOLD}make help{RESET}         — see all commands
 

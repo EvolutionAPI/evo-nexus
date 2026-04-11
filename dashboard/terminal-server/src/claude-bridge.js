@@ -47,6 +47,16 @@ class ClaudeBridge {
         )
       );
 
+      // If Codex OAuth auth.json exists, remove OPENAI_API_KEY to let
+      // OpenClaude use the OAuth token instead of a potentially stale key
+      if (active === 'openai' || active === 'codex_auth') {
+        const codexAuthPath = path.join(process.env.HOME || '/', '.codex', 'auth.json');
+        if (fs.existsSync(codexAuthPath)) {
+          delete envVars['OPENAI_API_KEY'];
+          console.log('[provider] Codex auth.json found — using OAuth token, removing OPENAI_API_KEY');
+        }
+      }
+
       console.log(`[provider] Active provider: ${active} (cli: ${cliCommand})`);
       if (Object.keys(envVars).length > 0) {
         console.log(`[provider] Injecting env vars: ${Object.keys(envVars).join(', ')}`);

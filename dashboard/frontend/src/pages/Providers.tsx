@@ -91,6 +91,15 @@ export default function Providers() {
   const [testResults, setTestResults] = useState<Record<string, { success: boolean; message: string }>>({})
   const [claudeInstalled, setClaudeInstalled] = useState(false)
   const [openclaudeInstalled, setOpenclaudeInstalled] = useState(false)
+  const [codexAuth, setCodexAuth] = useState<{ authenticated: boolean; method?: string } | null>(null)
+  const [authModal, setAuthModal] = useState(false)
+  const [authMode, setAuthMode] = useState<'browser' | 'device'>('browser')
+  const [authUrl, setAuthUrl] = useState('')
+  const [callbackUrl, setCallbackUrl] = useState('')
+  const [authLoading, setAuthLoading] = useState(false)
+  const [authMessage, setAuthMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
+  const [deviceCode, setDeviceCode] = useState<{ user_code: string; verification_url: string; interval: number; expires_in: number } | null>(null)
+  const [devicePolling, setDevicePolling] = useState(false)
 
   const load = () => {
     setLoading(true)
@@ -105,7 +114,21 @@ export default function Providers() {
       .finally(() => setLoading(false))
   }
 
-  useEffect(() => { load() }, [])
+  useEffect(() => {
+    load()
+    loadCodexAuth()
+    const params = new URLSearchParams(window.location.search)
+    if (params.get('auth') === 'success') {
+      window.history.replaceState({}, '', '/providers')
+      loadCodexAuth()
+    }
+  }, [])
+
+  useEffect(() => {
+    if (!devicePolling) return
+    const timer = setInterval(pollDeviceAuth, 5000)
+    return () => clearInterval(timer)
+  }, [devicePolling])
 
   const handleActivate = async (id: string) => {
     try {
@@ -177,6 +200,90 @@ export default function Providers() {
       setTestResults(prev => ({ ...prev, [id]: { success: false, message: 'Request failed' } }))
     } finally {
       setTesting(null)
+    }
+  }
+
+  const loadCodexAuth = () => {
+    api.get('/providers/openai/status').then((d: any) => setCodexAuth(d)).catch(() => setCodexAuth(null))
+  }
+
+  const startBrowserAuth = async () => {
+    setAuthLoading(true)
+    setAuthMessage(null)
+    try {
+      const data = await api.post('/providers/openai/auth-start') as any
+      setAuthUrl(data.authorize_url)
+      setAuthLoading(false)
+    } catch (e) {
+      setAuthMessage({ type: 'error', text: 'Falha ao iniciar autenticacao' })
+      setAuthLoading(false)
+    }
+  }
+
+  const completeBrowserAuth = async () => {
+    if (!callbackUrl.includes('code=')) {
+      setAuthMessage({ type: 'error', text: 'URL invalida - deve conter ?code=' })
+      return
+    }
+    setAuthLoading(true)
+    try {
+      const result = await api.post('/providers/openai/auth-complete', { callback_url: callbackUrl }) as any
+      if (result.status === 'ok') {
+        setAuthMessage({ type: 'success', text: result.message || 'Autenticado!' })
+        setAuthModal(false)
+        loadCodexAuth()
+        load()
+      } else {
+        setAuthMessage({ type: 'error', text: result.error || 'Falha na autenticacao' })
+      }
+    } catch (e: any) {
+      setAuthMessage({ type: 'error', text: 'Erro ao completar autenticacao' })
+    } finally {
+      setAuthLoading(false)
+    }
+  }
+
+  const startDeviceAuth = async () => {
+    setAuthLoading(true)
+    setAuthMessage(null)
+    try {
+      const data = await api.post('/providers/openai/device-start') as any
+      if (data.error) {
+        setAuthMessage({ type: 'error', text: data.error })
+      } else {
+        setDeviceCode(data)
+        setDevicePolling(true)
+      }
+    } catch (e) {
+      setAuthMessage({ type: 'error', text: 'Device auth nao disponivel para sua organizacao' })
+    } finally {
+      setAuthLoading(false)
+    }
+  }
+
+  const pollDeviceAuth = async () => {
+    try {
+      const result = await api.post('/providers/openai/device-poll') as any
+      if (result.status === 'authorized') {
+        setDevicePolling(false)
+        setDeviceCode(null)
+        setAuthModal(false)
+        setAuthMessage({ type: 'success', text: 'Autenticado com sucesso!' })
+        loadCodexAuth()
+        load()
+      }
+    } catch {
+      // Keep polling
+    }
+  }
+
+  const handleOpenAILogout = async () => {
+    try {
+      await api.post('/providers/openai/logout')
+      setCodexAuth({ authenticated: false })
+      load()
+    } catch (e) {
+      console.error(e)
     }
   }
 
@@ -309,6 +416,33 @@ export default function Providers() {
                     </span>
                   )}
                 </div>
+
+                {/* OpenAI Auth Section */}
+                {prov.id === 'openai' && isInstalled && (
+                  <div className="mb-3">
+                    {codexAuth?.authenticated ? (
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className="inline-flex items-center gap-1 text-[10px] font-medium px-2.5 py-1 rounded-full bg-[#00FFA7]/10 text-[#00FFA7] border border-[#00FFA7]/25">
+                          <CheckCircle2 size={10} /> Codex OAuth
+                        </span>
+                        <button
+                          onClick={handleOpenAILogout}
+                          className="text-[10px] px-2 py-0.5 rounded-full bg-red-500/10 text-red-400 border border-red-500/25 hover:bg-red-500/20 transition-all"
+                        >
+                          Logout
+                        </button>
+                      </div>
+                    ) : (
+                      <button
+                        onClick={() => { setAuthModal(true); setAuthMode('browser'); setAuthUrl(''); setCallbackUrl(''); setAuthMessage(null); setDeviceCode(null); setDevicePolling(false); startBrowserAuth() }}
+                        className="w-full flex items-center justify-center gap-2 text-sm px-4 py-2.5 rounded-lg bg-[#10A37F]/15 text-[#10A37F] border border-[#10A37F]/30 hover:bg-[#10A37F]/25 hover:shadow-[0_0_16px_rgba(16,163,127,0.15)] transition-all font-medium"
+                      >
+                        <Zap size={14} />
+                        Login com OpenAI
+                      </button>
+                    )}
+                  </div>
+                )}
 
                 {/* Logout warning */}
                 {prov.requires_logout && prov.is_active && (
@@ -496,6 +630,163 @@ export default function Providers() {
           </div>
         )
       })()}
+
+      {/* OpenAI Auth Modal */}
+      {authModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
+          <div className="w-full max-w-lg mx-4 bg-[#161b22] border border-[#21262d] rounded-2xl shadow-2xl">
+            {/* Header */}
+            <div className="flex items-center justify-between px-6 py-4 border-b border-[#21262d]">
+              <h2 className="text-lg font-semibold text-[#e6edf3]">Conectar com OpenAI</h2>
+              <button onClick={() => { setAuthModal(false); setDevicePolling(false) }} className="p-1 rounded-lg hover:bg-white/[0.08] text-[#667085] hover:text-white transition-colors">
+                <X size={18} />
+              </button>
+            </div>
+
+            {/* Tabs */}
+            <div className="flex border-b border-[#21262d]">
+              <button
+                onClick={() => { setAuthMode('browser'); if (!authUrl) startBrowserAuth() }}
+                className={`flex-1 py-2.5 text-xs font-medium transition-colors ${authMode === 'browser' ? 'text-[#10A37F] border-b-2 border-[#10A37F]' : 'text-[#667085] hover:text-[#8b949e]'}`}
+              >
+                Browser OAuth
+              </button>
+              <button
+                onClick={() => { setAuthMode('device'); if (!deviceCode) startDeviceAuth() }}
+                className={`flex-1 py-2.5 text-xs font-medium transition-colors ${authMode === 'device' ? 'text-[#10A37F] border-b-2 border-[#10A37F]' : 'text-[#667085] hover:text-[#8b949e]'}`}
+              >
+                Device Auth
+              </button>
+            </div>
+
+            {/* Body */}
+            <div className="px-6 py-5 space-y-4">
+              {authMode === 'browser' ? (
+                <>
+                  {authUrl ? (
+                    <>
+                      <div className="space-y-3">
+                        <p className="text-sm text-[#8b949e]">
+                          <span className="text-[#e6edf3] font-medium">1.</span> Clique no link abaixo para abrir o login do OpenAI:
+                        </p>
+                        <a
+                          href={authUrl}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="block text-center py-2 px-4 rounded-lg bg-[#10A37F]/15 text-[#10A37F] border border-[#10A37F]/30 hover:bg-[#10A37F]/25 transition-all text-sm font-medium"
+                        >
+                          Abrir OpenAI Login
+                        </a>
+                      </div>
+                      <div className="space-y-2">
+                        <p className="text-sm text-[#8b949e]">
+                          <span className="text-[#e6edf3] font-medium">2.</span> Autorize o acesso na pagina do OpenAI.
+                        </p>
+                        <p className="text-sm text-[#8b949e]">
+                          <span className="text-[#e6edf3] font-medium">3.</span> Apos autorizar, o browser vai mostrar uma pagina de erro. <span className="text-[#FBBF24]">Isso e normal!</span> Copie a URL completa da barra de enderecos:
+                        </p>
+                        <input
+                          type="text"
+                          value={callbackUrl}
+                          onChange={(e) => setCallbackUrl(e.target.value)}
+                          placeholder="http://localhost:1455/auth/callback?code=..."
+                          className="w-full px-3 py-2 text-sm bg-[#0C111D] border border-[#21262d] rounded-lg text-[#e6edf3] placeholder-[#667085] focus:outline-none focus:border-[#10A37F]/50 focus:ring-1 focus:ring-[#10A37F]/20 transition-all font-mono"
+                        />
+                      </div>
+                    </>
+                  ) : (
+                    <div className="flex items-center justify-center py-8">
+                      <RefreshCw size={20} className="animate-spin text-[#667085]" />
+                      <span className="ml-2 text-sm text-[#667085]">Gerando link de autenticacao...</span>
+                    </div>
+                  )}
+                </>
+              ) : (
+                <>
+                  {deviceCode ? (
+                    <div className="space-y-4">
+                      <p className="text-sm text-[#8b949e]">
+                        <span className="text-[#e6edf3] font-medium">1.</span> Abra este link:
+                      </p>
+                      <a
+                        href={deviceCode.verification_url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="block text-center py-2 px-4 rounded-lg bg-[#10A37F]/15 text-[#10A37F] border border-[#10A37F]/30 hover:bg-[#10A37F]/25 transition-all text-sm font-medium"
+                      >
+                        {deviceCode.verification_url}
+                      </a>
+                      <p className="text-sm text-[#8b949e]">
+                        <span className="text-[#e6edf3] font-medium">2.</span> Digite o codigo:
+                      </p>
+                      <div className="flex items-center gap-3 justify-center">
+                        <code className="text-2xl font-bold text-[#e6edf3] tracking-[0.2em] bg-[#0C111D] px-6 py-3 rounded-xl border border-[#21262d]">
+                          {deviceCode.user_code}
+                        </code>
+                        <button
+                          onClick={() => navigator.clipboard.writeText(deviceCode.user_code)}
+                          className="p-2 rounded-lg bg-white/[0.04] text-[#8b949e] border border-[#21262d] hover:bg-white/[0.08] hover:text-white transition-all"
+                          title="Copiar"
+                        >
+                          <CheckCircle2 size={14} />
+                        </button>
+                      </div>
+                      {devicePolling && (
+                        <div className="flex items-center justify-center gap-2 text-sm text-[#667085]">
+                          <RefreshCw size={14} className="animate-spin" />
+                          Aguardando autorizacao...
+                        </div>
+                      )}
+                    </div>
+                  ) : authLoading ? (
+                    <div className="flex items-center justify-center py-8">
+                      <RefreshCw size={20} className="animate-spin text-[#667085]" />
+                      <span className="ml-2 text-sm text-[#667085]">Iniciando device auth...</span>
+                    </div>
+                  ) : null}
+                  {authMessage?.type === 'error' && authMode === 'device' && (
+                    <div className="rounded-lg bg-red-500/10 border border-red-500/25 p-3">
+                      <p className="text-xs text-red-400">{authMessage.text}</p>
+                      <p className="text-[10px] text-[#667085] mt-1">Sua organizacao pode nao permitir Device Auth. Use a aba "Browser OAuth".</p>
+                    </div>
+                  )}
+                </>
+              )}
+
+              {/* Message */}
+              {authMessage && authMode === 'browser' && (
+                <div className={`rounded-lg p-3 text-xs ${
+                  authMessage.type === 'success'
+                    ? 'bg-[#00FFA7]/10 text-[#00FFA7] border border-[#00FFA7]/25'
+                    : 'bg-red-500/10 text-red-400 border border-red-500/25'
+                }`}>
+                  {authMessage.text}
+                </div>
+              )}
+            </div>
+
+            {/* Footer */}
+            <div className="flex items-center justify-between px-6 py-4 border-t border-[#21262d]">
+              <button
+                onClick={() => { setAuthModal(false); setDevicePolling(false) }}
+                className="text-xs px-4 py-1.5 rounded-full bg-white/[0.04] text-[#8b949e] border border-[#21262d] hover:bg-white/[0.08] hover:text-white transition-all"
+              >
+                Cancelar
+              </button>
+              {authMode === 'browser' && authUrl && (
+                <button
+                  onClick={completeBrowserAuth}
+                  disabled={!callbackUrl || authLoading}
+                  className="flex items-center gap-1.5 text-xs px-4 py-1.5 rounded-full bg-[#10A37F]/10 text-[#10A37F] border border-[#10A37F]/20 hover:bg-[#10A37F]/20 transition-all disabled:opacity-50"
+                >
+                  {authLoading ? <RefreshCw size={12} className="animate-spin" /> : <CheckCircle2 size={12} />}
+                  Confirmar
+                </button>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
