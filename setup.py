@@ -722,9 +722,24 @@ def main():
         print(f"  {DIM}(services will run as {sudo_user}, not root){RESET}")
 
     # Start terminal-server
-    os.system(f"{run_as} 'cd {WORKSPACE} && node dashboard/terminal-server/bin/server.js > {logs_dir}/terminal-server.log 2>&1 &'")
-    # Start Flask dashboard
-    os.system(f"{run_as} 'cd {WORKSPACE}/dashboard/backend && uv run python app.py > {logs_dir}/dashboard.log 2>&1 &'")
+    # Create a startup script that persists processes properly
+    startup_script = WORKSPACE / "start-services.sh"
+    startup_script.write_text(f"""#!/bin/bash
+export PATH="/usr/local/bin:/usr/bin:/bin:$HOME/.local/bin"
+cd {WORKSPACE}
+pkill -f 'terminal-server/bin/server.js' 2>/dev/null
+pkill -f 'dashboard/backend.*app.py' 2>/dev/null
+sleep 1
+nohup node dashboard/terminal-server/bin/server.js > {logs_dir}/terminal-server.log 2>&1 &
+cd dashboard/backend
+nohup {WORKSPACE}/.venv/bin/python app.py > {logs_dir}/dashboard.log 2>&1 &
+""", encoding="utf-8")
+    os.chmod(startup_script, 0o755)
+
+    if sudo_user:
+        os.system(f"su - {sudo_user} -c '{startup_script}'")
+    else:
+        os.system(str(startup_script))
     import time as _time
     _time.sleep(3)
     # Verify
