@@ -31,77 +31,94 @@ def banner():
 """)
 
 
+def _check_tool(name, cmd, install_cmd=None, install_label=None):
+    """Check if a tool is installed. If not, offer to install it."""
+    try:
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=10)
+        if result.returncode == 0:
+            version = result.stdout.strip() or result.stderr.strip()
+            print(f"  {GREEN}✓{RESET} {name}: {DIM}{version}{RESET}")
+            return True
+    except (FileNotFoundError, subprocess.TimeoutExpired):
+        pass
+
+    if install_cmd:
+        print(f"  {YELLOW}!{RESET} {name} not found")
+        choice = input(f"    Install {name}? (Y/n): ").strip().lower()
+        if choice in ("", "y", "yes", "s", "sim"):
+            print(f"  {DIM}Installing {name}...{RESET}")
+            ret = os.system(install_cmd)
+            # Re-check after install
+            try:
+                result = subprocess.run(cmd, capture_output=True, text=True, timeout=10)
+                if result.returncode == 0:
+                    version = result.stdout.strip() or result.stderr.strip()
+                    print(f"  {GREEN}✓{RESET} {name}: {DIM}{version}{RESET}")
+                    return True
+            except (FileNotFoundError, subprocess.TimeoutExpired):
+                pass
+            print(f"  {RED}✗{RESET} Failed to install {name}")
+        else:
+            print(f"  {RED}✗{RESET} {name} is required for EvoNexus")
+    else:
+        print(f"  {RED}✗{RESET} {name} not found — {install_label or 'install manually'}")
+
+    return False
+
+
 def check_prerequisites():
-    """Check that required tools are installed before proceeding."""
-    errors = []
-
-    # Claude Code CLI
-    try:
-        result = subprocess.run(["claude", "--version"], capture_output=True, text=True, timeout=5)
-        if result.returncode == 0:
-            version = result.stdout.strip()
-            print(f"  {GREEN}✓{RESET} Claude Code CLI: {DIM}{version}{RESET}")
-        else:
-            errors.append("claude")
-    except (FileNotFoundError, subprocess.TimeoutExpired):
-        errors.append("claude")
-
-    # Python / uv
-    try:
-        result = subprocess.run(["uv", "--version"], capture_output=True, text=True, timeout=5)
-        if result.returncode == 0:
-            version = result.stdout.strip()
-            print(f"  {GREEN}✓{RESET} uv: {DIM}{version}{RESET}")
-        else:
-            errors.append("uv")
-    except (FileNotFoundError, subprocess.TimeoutExpired):
-        errors.append("uv")
+    """Check and auto-install required tools."""
+    missing = []
 
     # Node.js
-    try:
-        result = subprocess.run(["node", "--version"], capture_output=True, text=True, timeout=5)
-        if result.returncode == 0:
-            version = result.stdout.strip()
-            print(f"  {GREEN}✓{RESET} Node.js: {DIM}{version}{RESET}")
-        else:
-            errors.append("node")
-    except (FileNotFoundError, subprocess.TimeoutExpired):
-        errors.append("node")
+    if not _check_tool("Node.js", ["node", "--version"],
+                        install_cmd="curl -fsSL https://deb.nodesource.com/setup_22.x | bash - && apt install -y nodejs 2>/dev/null || echo 'Install Node.js 18+ from https://nodejs.org'",
+                        install_label="https://nodejs.org"):
+        missing.append("node")
 
-    # npm
-    npm_cmd = "npm"
-    try:
-        result = subprocess.run([npm_cmd, "--version"], capture_output=True, text=True, timeout=5)
-        if result.returncode != 0:
-            raise FileNotFoundError
-        print(f"  {GREEN}✓{RESET} npm: {DIM}v{result.stdout.strip()}{RESET}")
-    except (FileNotFoundError, subprocess.TimeoutExpired):
+    # npm (comes with Node.js)
+    npm_ok = False
+    for cmd in ["npm", "npm.cmd"]:
         try:
-            npm_cmd = "npm.cmd"
-            result = subprocess.run([npm_cmd, "--version"], capture_output=True, text=True, timeout=5)
+            result = subprocess.run([cmd, "--version"], capture_output=True, text=True, timeout=5)
             if result.returncode == 0:
                 print(f"  {GREEN}✓{RESET} npm: {DIM}v{result.stdout.strip()}{RESET}")
-            else:
-                errors.append("npm")
+                npm_ok = True
+                break
         except (FileNotFoundError, subprocess.TimeoutExpired):
-            errors.append("npm")
+            continue
+    if not npm_ok:
+        print(f"  {RED}✗{RESET} npm not found (should come with Node.js)")
+        missing.append("npm")
+
+    # uv (Python package manager)
+    if not _check_tool("uv", ["uv", "--version"],
+                        install_cmd="curl -LsSf https://astral.sh/uv/install.sh | sh && export PATH=\"$HOME/.local/bin:$PATH\""):
+        missing.append("uv")
+
+    # Claude Code CLI (or openclaude)
+    claude_ok = False
+    for name, cmd in [("Claude Code", ["claude", "--version"]), ("OpenClaude", ["openclaude", "--version"])]:
+        try:
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=5)
+            if result.returncode == 0:
+                print(f"  {GREEN}✓{RESET} {name}: {DIM}{result.stdout.strip()}{RESET}")
+                claude_ok = True
+                break
+        except (FileNotFoundError, subprocess.TimeoutExpired):
+            continue
+    if not claude_ok:
+        if not _check_tool("Claude Code CLI", ["claude", "--version"],
+                            install_cmd="npm install -g @anthropic-ai/claude-code"):
+            missing.append("claude")
 
     print()
 
-    if errors:
-        print(f"  {RED}✗ Missing required tools:{RESET}")
-        if "claude" in errors:
-            print(f"    {RED}•{RESET} Claude Code CLI — install from {BOLD}https://claude.ai/download{RESET}")
-            print(f"      {DIM}npm install -g @anthropic-ai/claude-code{RESET}")
-        if "uv" in errors:
-            print(f"    {RED}•{RESET} uv (Python package manager) — {BOLD}https://docs.astral.sh/uv/{RESET}")
-            print(f"      {DIM}curl -LsSf https://astral.sh/uv/install.sh | sh{RESET}")
-        if "node" in errors:
-            print(f"    {RED}•{RESET} Node.js 18+ — {BOLD}https://nodejs.org{RESET}")
-        if "npm" in errors:
-            print(f"    {RED}•{RESET} npm not found (Node.js installed but npm missing from PATH) — {BOLD}https://nodejs.org{RESET}")
-        print()
-        print(f"  {YELLOW}Install the missing tools and run setup again.{RESET}")
+    if missing:
+        print(f"  {RED}The following tools could not be installed:{RESET}")
+        for m in missing:
+            print(f"    {RED}•{RESET} {m}")
+        print(f"\n  {YELLOW}Install them manually and run setup again.{RESET}")
         sys.exit(1)
 
     return True
