@@ -210,7 +210,6 @@ def run_claude(prompt: str, log_name: str = "unnamed", timeout: int = 600, agent
 
     try:
         process = _spawn_cli(cli_command, prompt, agent, provider_env)
-        )
 
         stdout_lines = []
         line_count = 0
