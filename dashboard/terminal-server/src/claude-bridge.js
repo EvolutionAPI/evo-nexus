@@ -29,8 +29,7 @@ class ClaudeBridge {
       const configPath = path.join(workspaceRoot, 'config', 'providers.json');
       if (!fs.existsSync(configPath)) {
         console.log(`[provider] providers.json not found at ${configPath}, using defaults`);
-        return { cli_command: 'claude', env_vars: {} };
-      }
+        return { cli_command: 'claude', env_vars: {}, active: 'anthropic' };      }
       const config = JSON.parse(fs.readFileSync(configPath, 'utf8'));
       const active = config.active_provider || 'anthropic';
       const provider = config.providers?.[active] || {};
@@ -61,7 +60,7 @@ class ClaudeBridge {
       if (Object.keys(envVars).length > 0) {
         console.log(`[provider] Injecting env vars: ${Object.keys(envVars).join(', ')}`);
       }
-      return { cli_command: cliCommand, env_vars: envVars };
+      return { cli_command: cliCommand, env_vars: envVars, active };
     } catch (err) {
       console.warn(`[provider] Could not read providers.json: ${err.message}`);
       return { cli_command: 'claude', env_vars: {} };
@@ -153,10 +152,29 @@ class ClaudeBridge {
         args.push('--agent', agent);
       }
       const providerEnv = providerConfig.env_vars || {};
+
+      // Build clean environment for the spawned process.
+      // Start with process.env but REMOVE conflicting vars when using Codex OAuth.
+      const baseEnv = { ...process.env };
+      const active = providerConfig.active || 'anthropic';
+
+      // If using OpenAI provider with Codex OAuth (auth.json), we must remove
+      // OPENAI_API_KEY from the environment entirely — otherwise it overrides
+      // the auth.json token and causes "Incorrect API key" errors.
+      if (active === 'openai' || active === 'codex_auth') {
+        const userHome = baseEnv.HOME || '/';
+        const codexAuthPath = path.join(userHome, '.codex', 'auth.json');
+        if (fs.existsSync(codexAuthPath)) {
+          delete baseEnv['OPENAI_API_KEY'];
+          delete providerEnv['OPENAI_API_KEY'];
+          console.log(`[provider] Codex auth.json found at ${codexAuthPath} — removed OPENAI_API_KEY from env`);
+        }
+      }
+
       const claudeProcess = spawn(cliCommand, args, {
         cwd: workingDir,
         env: {
-          ...process.env,
+          ...baseEnv,
           ...providerEnv,
           TERM: 'xterm-256color',
           FORCE_COLOR: '1',
