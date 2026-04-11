@@ -151,6 +151,19 @@ class ClaudeBridge {
       if (agent) {
         args.push('--agent', agent);
       }
+
+      // For non-Anthropic providers, reinforce agent persona via --append-system-prompt.
+      // GPT and other models don't follow agent system prompts as strongly as Claude.
+      // This appends a critical instruction to force persona embodiment.
+      const active = providerConfig.active || 'anthropic';
+      if (active !== 'anthropic' && agent) {
+        args.push('--append-system-prompt',
+          'CRITICAL: You MUST fully embody the agent persona defined in your system prompt. ' +
+          'You are NOT Claude or a generic assistant — you ARE the specific agent loaded via --agent. ' +
+          'When asked who you are, ALWAYS respond as the agent persona (name, role, behavior). ' +
+          'Never break character. Follow ALL instructions from the agent definition.'
+        );
+      }
       const providerEnv = providerConfig.env_vars || {};
 
       // Build a CLEAN environment for the spawned CLI process.
@@ -173,7 +186,6 @@ class ClaudeBridge {
       // Ensure OPENAI_MODEL is set when using OpenAI provider.
       // Without it, OpenClaude can't resolve which model to use and
       // falls back to API key auth instead of Codex OAuth auth.json.
-      const active = providerConfig.active || 'anthropic';
       if ((active === 'openai' || active === 'codex_auth') && !providerEnv['OPENAI_MODEL']) {
         providerEnv['OPENAI_MODEL'] = 'gpt-5.4-mini';
         console.log('[provider] OPENAI_MODEL not set — defaulting to gpt-5.4-mini');
