@@ -147,7 +147,11 @@ class ClaudeBridge {
         console.log(`⚠️ WARNING: Skipping permissions with --dangerously-skip-permissions flag`);
       }
 
-      const args = dangerouslySkipPermissions ? ['--dangerously-skip-permissions'] : [];
+      // Don't use --dangerously-skip-permissions when running as root —
+      // Claude/OpenClaude block this flag for root users.
+      // The trust prompt is auto-accepted via PTY detection below instead.
+      const isRoot = process.getuid && process.getuid() === 0;
+      const args = (dangerouslySkipPermissions && !isRoot) ? ['--dangerously-skip-permissions'] : [];
       if (agent) {
         args.push('--agent', agent);
       }
