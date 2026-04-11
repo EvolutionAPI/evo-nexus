@@ -695,13 +695,15 @@ def main():
     (WORKSPACE / "dashboard" / "data").mkdir(parents=True, exist_ok=True)
 
     # Start dashboard services
+    logs_dir = WORKSPACE / "logs"
+    logs_dir.mkdir(exist_ok=True)
     print(f"\n  {DIM}Starting dashboard services...{RESET}")
     os.system("pkill -f 'terminal-server/bin/server.js' 2>/dev/null")
     os.system("pkill -f 'dashboard/backend.*app.py' 2>/dev/null")
     # Start terminal-server
-    os.system(f"cd {WORKSPACE} && node dashboard/terminal-server/bin/server.js > /tmp/terminal-server.log 2>&1 &")
+    os.system(f"cd {WORKSPACE} && node dashboard/terminal-server/bin/server.js > logs/terminal-server.log 2>&1 &")
     # Start Flask dashboard
-    os.system(f"cd {WORKSPACE}/dashboard/backend && nohup uv run python app.py > /tmp/evonexus-dashboard.log 2>&1 &")
+    os.system(f"cd {WORKSPACE}/dashboard/backend && nohup uv run python app.py > logs/dashboard.log 2>&1 &")
     import time as _time
     _time.sleep(3)
     # Verify
@@ -710,12 +712,12 @@ def main():
         _urllib.urlopen("http://localhost:32352", timeout=3)
         print(f"  {GREEN}✓{RESET} Terminal server started (port 32352)")
     except Exception:
-        print(f"  {YELLOW}!{RESET} Terminal server may not have started — check /tmp/terminal-server.log")
+        print(f"  {YELLOW}!{RESET} Terminal server may not have started — check logs/terminal-server.log")
     try:
         _urllib.urlopen("http://localhost:8080", timeout=3)
         print(f"  {GREEN}✓{RESET} Dashboard started (port 8080)")
     except Exception:
-        print(f"  {YELLOW}!{RESET} Dashboard may not have started — check /tmp/evonexus-dashboard.log")
+        print(f"  {YELLOW}!{RESET} Dashboard may not have started — check logs/dashboard.log")
 
     dashboard_url = access_config.get('url', f'http://localhost:{dashboard_port}')
 
