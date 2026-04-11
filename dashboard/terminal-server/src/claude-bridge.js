@@ -142,6 +142,7 @@ class ClaudeBridge {
       console.log(`Starting session ${sessionId} with ${providerConfig.cli_command}`);
       console.log(`Command: ${cliCommand}`);
       console.log(`Working directory: ${workingDir}`);
+      console.log(`Agent: ${agent || 'none'}`);
       console.log(`Terminal size: ${cols}x${rows}`);
       if (dangerouslySkipPermissions) {
         console.log(`⚠️ WARNING: Skipping permissions with --dangerously-skip-permissions flag`);
@@ -195,6 +196,7 @@ class ClaudeBridge {
         console.log('[provider] OPENAI_MODEL not set — defaulting to gpt-5.4');
       }
 
+      console.log(`[spawn] Args: ${JSON.stringify(args)}`);
       const claudeProcess = spawn(cliCommand, args, {
         cwd: workingDir,
         env: {
