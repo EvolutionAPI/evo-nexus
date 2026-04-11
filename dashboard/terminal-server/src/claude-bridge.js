@@ -59,50 +59,53 @@ class ClaudeBridge {
   }
 
   findClaudeCommand(cliCommand = 'claude') {
+    const { execSync } = require('child_process');
 
-    const possibleCommands = cliCommand === 'openclaude'
+    // Use shell-based `which` to resolve with full PATH (incl. nvm, fnm, etc.)
+    // Hardcoded dispatch to satisfy semgrep — each branch is a literal string
+    try {
+      let resolved;
+      if (cliCommand === 'openclaude') {
+        resolved = execSync('which openclaude', { encoding: 'utf8', stdio: ['pipe', 'pipe', 'ignore'] }).trim();
+      } else {
+        resolved = execSync('which claude', { encoding: 'utf8', stdio: ['pipe', 'pipe', 'ignore'] }).trim();
+      }
+      if (resolved) {
+        console.log(`[provider] Found ${cliCommand} at: ${resolved}`);
+        return resolved;
+      }
+    } catch {
+      // which failed — try hardcoded paths below
+    }
+
+    // Fallback: check common hardcoded paths
+    const home = process.env.HOME || '/';
+    const paths = cliCommand === 'openclaude'
       ? [
-          'openclaude',
-          path.join(process.env.HOME || '/', '.local', 'bin', 'openclaude'),
+          path.join(home, '.local', 'bin', 'openclaude'),
           '/usr/local/bin/openclaude',
           '/usr/bin/openclaude',
-          // npm global paths (nvm, fnm, volta, etc.)
-          path.join(process.env.HOME || '/', '.nvm', 'versions', 'node', '*', 'bin', 'openclaude'),
-          path.join(process.env.NVM_BIN || '/dev/null', 'openclaude'),
-          path.join(process.env.HOME || '/', '.npm-global', 'bin', 'openclaude'),
         ]
       : [
-          '/home/ec2-user/.claude/local/claude',
-          'claude',
-          'claude-code',
-          path.join(process.env.HOME || '/', '.claude', 'local', 'claude'),
-          path.join(process.env.HOME || '/', '.local', 'bin', 'claude'),
+          path.join(home, '.claude', 'local', 'claude'),
+          path.join(home, '.local', 'bin', 'claude'),
           '/usr/local/bin/claude',
           '/usr/bin/claude',
         ];
 
-    for (const cmd of possibleCommands) {
+    for (const p of paths) {
       try {
-        if (fs.existsSync(cmd) || this.commandExists(cmd)) {
-          console.log(`Found ${cliCommand} command at: ${cmd}`);
-          return cmd;
+        if (fs.existsSync(p)) {
+          console.log(`[provider] Found ${cliCommand} at hardcoded path: ${p}`);
+          return p;
         }
-      } catch (error) {
+      } catch {
         continue;
       }
     }
 
-    console.error(`${cliCommand} command not found, using default "${cliCommand}"`);
+    console.error(`[provider] ${cliCommand} not found anywhere, using bare command name`);
     return cliCommand;
-  }
-
-  commandExists(command) {
-    try {
-      require('child_process').execFileSync('which', [command], { stdio: 'ignore' });
-      return true;
-    } catch (error) {
-      return false;
-    }
   }
 
   async startSession(sessionId, options = {}) {
