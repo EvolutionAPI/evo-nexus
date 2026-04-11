@@ -694,23 +694,32 @@ def main():
     # Data dir for SQLite
     (WORKSPACE / "dashboard" / "data").mkdir(parents=True, exist_ok=True)
 
+    # Fix ownership BEFORE starting services.
+    # When running with sudo, all files (including .venv, node_modules,
+    # frontend dist, data dir) are created as root. The services MUST
+    # run as the original user, so we chown everything now.
+    sudo_user = os.environ.get("SUDO_USER", "")
+    if sudo_user and os.getuid() == 0:
+        print(f"  {DIM}Fixing file ownership for {sudo_user}...{RESET}")
+        os.system(f"chown -R {sudo_user}:{sudo_user} {WORKSPACE}")
+        run_as = f"su - {sudo_user} -c"
+        print(f"  {GREEN}✓{RESET} Ownership fixed")
+    else:
+        run_as = "bash -c"
+
     # Start dashboard services
     logs_dir = WORKSPACE / "logs"
     logs_dir.mkdir(exist_ok=True)
-    print(f"\n  {DIM}Starting dashboard services...{RESET}")
-    os.system("pkill -f 'terminal-server/bin/server.js' 2>/dev/null")
-    os.system("pkill -f 'dashboard/backend.*app.py' 2>/dev/null")
-
-    # If running as root via sudo, start services as the ORIGINAL user.
-    # Root + --dangerously-skip-permissions is blocked by Claude/OpenClaude.
-    sudo_user = os.environ.get("SUDO_USER", "")
     if sudo_user and os.getuid() == 0:
-        # Fix ownership so the non-root user can write
-        os.system(f"chown -R {sudo_user}:{sudo_user} {WORKSPACE}")
-        run_as = f"su - {sudo_user} -c"
+        os.system(f"chown -R {sudo_user}:{sudo_user} {logs_dir}")
+    print(f"\n  {DIM}Starting dashboard services...{RESET}")
+    # Stop any existing services (systemd, background processes)
+    os.system("systemctl stop evonexus 2>/dev/null; systemctl disable evonexus 2>/dev/null")
+    os.system("pkill -f 'terminal-server/bin/server.js' 2>/dev/null")
+    os.system("pkill -f 'app.py' 2>/dev/null")
+    os.system("sleep 1")
+    if sudo_user:
         print(f"  {DIM}(services will run as {sudo_user}, not root){RESET}")
-    else:
-        run_as = "bash -c"
 
     # Start terminal-server
     os.system(f"{run_as} 'cd {WORKSPACE} && node dashboard/terminal-server/bin/server.js > {logs_dir}/terminal-server.log 2>&1 &'")
