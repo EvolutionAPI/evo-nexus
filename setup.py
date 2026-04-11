@@ -700,10 +700,22 @@ def main():
     print(f"\n  {DIM}Starting dashboard services...{RESET}")
     os.system("pkill -f 'terminal-server/bin/server.js' 2>/dev/null")
     os.system("pkill -f 'dashboard/backend.*app.py' 2>/dev/null")
+
+    # If running as root via sudo, start services as the ORIGINAL user.
+    # Root + --dangerously-skip-permissions is blocked by Claude/OpenClaude.
+    sudo_user = os.environ.get("SUDO_USER", "")
+    if sudo_user and os.getuid() == 0:
+        # Fix ownership so the non-root user can write
+        os.system(f"chown -R {sudo_user}:{sudo_user} {WORKSPACE}")
+        run_as = f"su - {sudo_user} -c"
+        print(f"  {DIM}(services will run as {sudo_user}, not root){RESET}")
+    else:
+        run_as = "bash -c"
+
     # Start terminal-server
-    os.system(f"cd {WORKSPACE} && node dashboard/terminal-server/bin/server.js > {logs_dir}/terminal-server.log 2>&1 &")
+    os.system(f"{run_as} 'cd {WORKSPACE} && node dashboard/terminal-server/bin/server.js > {logs_dir}/terminal-server.log 2>&1 &'")
     # Start Flask dashboard
-    os.system(f"cd {WORKSPACE}/dashboard/backend && nohup uv run python app.py > {logs_dir}/dashboard.log 2>&1 &")
+    os.system(f"{run_as} 'cd {WORKSPACE}/dashboard/backend && uv run python app.py > {logs_dir}/dashboard.log 2>&1 &'")
     import time as _time
     _time.sleep(3)
     # Verify
