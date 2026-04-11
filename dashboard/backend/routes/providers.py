@@ -335,7 +335,6 @@ def test_provider(provider_id):
 
 
 @bp.route("/api/providers/openai/auth-start", methods=["POST"])
-@login_required
 def openai_auth_start():
     """Generate PKCE + authorize URL for Browser OAuth flow."""
     code_verifier = secrets.token_urlsafe(64)
@@ -362,7 +361,6 @@ def openai_auth_start():
 
 
 @bp.route("/api/providers/openai/auth-complete", methods=["POST"])
-@login_required
 def openai_auth_complete():
     """Receive callback URL pasted by user, extract code, exchange for tokens."""
     import requests as http_req
@@ -404,7 +402,6 @@ def openai_auth_complete():
 
 
 @bp.route("/api/providers/openai/device-start", methods=["POST"])
-@login_required
 def openai_device_start():
     """Start device auth flow."""
     import requests as http_req
@@ -429,7 +426,6 @@ def openai_device_start():
 
 
 @bp.route("/api/providers/openai/device-poll", methods=["POST"])
-@login_required
 def openai_device_poll():
     """Poll for device auth authorization."""
     import requests as http_req
@@ -475,7 +471,6 @@ def openai_device_poll():
 
 
 @bp.route("/api/providers/openai/status")
-@login_required
 def openai_status():
     """Check if Codex OAuth token exists and is valid."""
     if not CODEX_AUTH_FILE.is_file():

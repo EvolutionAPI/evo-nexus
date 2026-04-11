@@ -588,22 +588,33 @@ def main():
     print(f"  {BOLD}Checking prerequisites...{RESET}")
     check_prerequisites()
 
-    # Dashboard access (Nginx config)
+    # Dashboard access (Nginx config) — FIRST question
     access_config = configure_access()
+    is_remote = access_config.get("mode") == "domain"
 
-    # Provider choice
-    print(f"  {BOLD}AI Provider{RESET}")
-    provider_choice = choose_provider()
-    print()
+    if is_remote:
+        # Remote mode: minimal setup, then redirect to dashboard
+        print(f"\n  {BOLD}Quick setup for remote access...{RESET}")
+        owner_name = ""
+        company_name = ""
+        timezone = "America/Sao_Paulo"
+        language = "ptBR"
+        dashboard_port = 8080
+    else:
+        # Local mode: full interactive setup
+        # Provider choice
+        print(f"  {BOLD}AI Provider{RESET}")
+        provider_choice = choose_provider()
+        print()
 
-    # Who are you?
-    print(f"  {BOLD}About you{RESET}")
-    owner_name = ask("Your name", "")
-    company_name = ask("Company name", "")
-    timezone = ask("Timezone", "America/Sao_Paulo")
-    language = ask("Language", "en")
-    dashboard_port = int(ask("Dashboard port", "8080"))
-    print()
+        # Who are you?
+        print(f"  {BOLD}About you{RESET}")
+        owner_name = ask("Your name", "")
+        company_name = ask("Company name", "")
+        timezone = ask("Timezone", "America/Sao_Paulo")
+        language = ask("Language", "ptBR")
+        dashboard_port = int(ask("Dashboard port", "8080"))
+        print()
 
     # All agents and integrations enabled by default
     agents = [a["key"] for a in AGENTS]
