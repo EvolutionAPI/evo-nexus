@@ -92,8 +92,12 @@ def check_prerequisites():
         missing.append("npm")
 
     # uv (Python package manager)
+    # After install, uv lands in ~/.local/bin — add to PATH for re-check
+    home_bin = os.path.join(os.path.expanduser("~"), ".local", "bin")
+    if home_bin not in os.environ.get("PATH", ""):
+        os.environ["PATH"] = f"{home_bin}:{os.environ.get('PATH', '')}"
     if not _check_tool("uv", ["uv", "--version"],
-                        install_cmd="curl -LsSf https://astral.sh/uv/install.sh | sh && export PATH=\"$HOME/.local/bin:$PATH\""):
+                        install_cmd="curl -LsSf https://astral.sh/uv/install.sh | sh"):
         missing.append("uv")
 
     # Claude Code CLI (or openclaude)
