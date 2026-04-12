@@ -100,7 +100,8 @@ After=network.target
 Documentation=https://github.com/EvolutionAPI/evo-nexus
 
 [Service]
-Type=forking
+Type=oneshot
+RemainAfterExit=yes
 User=$SERVICE_USER
 Group=$SERVICE_USER
 WorkingDirectory=$SERVICE_DIR
@@ -108,9 +109,6 @@ Environment=PATH=$SERVICE_HOME/.local/bin:/usr/local/bin:/usr/bin:/bin
 Environment=HOME=$SERVICE_HOME
 ExecStart=/bin/bash $SERVICE_DIR/start-services.sh
 ExecStop=/bin/bash -c 'pkill -f "terminal-server/bin/server.js" 2>/dev/null; pkill -f "dashboard/backend.*app.py" 2>/dev/null'
-PIDFile=$SERVICE_DIR/logs/dashboard.pid
-Restart=on-failure
-RestartSec=10
 StandardOutput=append:$SERVICE_DIR/logs/service.log
 StandardError=append:$SERVICE_DIR/logs/service.log
 
