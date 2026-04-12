@@ -72,8 +72,8 @@ export default function Setup() {
       } catch { /* geo is optional */ }
 
       await api.post('/auth/setup', {
-        // Only send workspace config if not already configured via CLI
-        workspace: hasConfig ? undefined : {
+        // Send workspace config whenever Step 1 was shown (owner empty or no config)
+        workspace: (hasConfig && currentStep === 2 && !ownerName.trim()) ? undefined : {
           owner_name: ownerName.trim(),
           company_name: companyName.trim(),
           timezone,

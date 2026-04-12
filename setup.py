@@ -46,18 +46,18 @@ def _check_tool(name, cmd, install_cmd=None, install_label=None):
         print(f"  {YELLOW}!{RESET} {name} not found")
         choice = input(f"    Install {name}? (Y/n): ").strip().lower()
         if choice in ("", "y", "yes", "s", "sim"):
-            print(f"  {DIM}Installing {name}...{RESET}")
-            ret = os.system(install_cmd)
+            print(f"  {DIM}Installing {name}...{RESET}", end="", flush=True)
+            ret = os.system(f"{install_cmd} > /dev/null 2>&1")
             # Re-check after install
             try:
                 result = subprocess.run(cmd, capture_output=True, text=True, timeout=10)
                 if result.returncode == 0:
                     version = result.stdout.strip() or result.stderr.strip()
-                    print(f"  {GREEN}✓{RESET} {name}: {DIM}{version}{RESET}")
+                    print(f"\r  {GREEN}✓{RESET} {name}: {DIM}{version}{RESET}                    ")
                     return True
             except (FileNotFoundError, subprocess.TimeoutExpired):
                 pass
-            print(f"  {RED}✗{RESET} Failed to install {name}")
+            print(f"\r  {RED}✗{RESET} Failed to install {name}                    ")
         else:
             print(f"  {RED}✗{RESET} {name} is required for EvoNexus")
     else:
@@ -184,8 +184,8 @@ def configure_access() -> dict:
 
     # Step 1: Install nginx
     if not shutil.which("nginx"):
-        print(f"  {DIM}Installing nginx...{RESET}")
-        os.system("apt install -y nginx 2>/dev/null || yum install -y nginx 2>/dev/null")
+        print(f"  {DIM}Installing nginx...{RESET}", end="", flush=True)
+        os.system("apt install -y nginx > /dev/null 2>&1 || yum install -y nginx > /dev/null 2>&1")
         if not shutil.which("nginx"):
             print(f"  {RED}✗{RESET} nginx installation failed, using local mode")
             return {"mode": "local", "url": "http://localhost:8080"}
@@ -212,17 +212,18 @@ def configure_access() -> dict:
         else:
             # Install certbot if needed
             if not shutil.which("certbot"):
-                print(f"  {DIM}Installing certbot...{RESET}")
-                os.system("apt install -y certbot 2>/dev/null")
+                print(f"  {DIM}Installing certbot...{RESET}", end="", flush=True)
+                os.system("apt install -y certbot > /dev/null 2>&1")
+                print(f"\r  {GREEN}✓{RESET} certbot installed                    ")
             # Obtain certificate (requires domain DNS pointing to this server)
-            print(f"  {DIM}Obtaining SSL certificate via certbot...{RESET}")
-            ret = os.system(f"certbot certonly --standalone -d {domain} --non-interactive --agree-tos --register-unsafely-without-email")
+            print(f"  {DIM}Obtaining SSL certificate via certbot...{RESET}", end="", flush=True)
+            ret = os.system(f"certbot certonly --standalone -d {domain} --non-interactive --agree-tos --register-unsafely-without-email > /dev/null 2>&1")
             if ret == 0:
                 ssl_cert = certbot_cert
                 ssl_key = certbot_key
-                print(f"  {GREEN}✓{RESET} SSL certificate obtained via certbot")
+                print(f"\r  {GREEN}✓{RESET} SSL certificate obtained via certbot                    ")
             else:
-                print(f"  {YELLOW}!{RESET} certbot failed (DNS not pointing here?) — falling back to self-signed")
+                print(f"\r  {YELLOW}!{RESET} certbot failed — falling back to self-signed                    ")
                 ssl_mode = "2"
 
     if ssl_mode == "2":
@@ -783,16 +784,16 @@ def main():
     # Dashboard build
     frontend_dir = WORKSPACE / "dashboard" / "frontend"
     if (frontend_dir / "package.json").exists():
-        print(f"  {DIM}Building dashboard frontend...{RESET}")
-        os.system(f"cd {frontend_dir} && npm install --silent && npm run build --silent")
-        print(f"  {GREEN}✓{RESET} Built dashboard frontend")
+        print(f"  {DIM}Building dashboard frontend...{RESET}", end="", flush=True)
+        os.system(f"cd {frontend_dir} && npm install --silent > /dev/null 2>&1 && npm run build --silent > /dev/null 2>&1")
+        print(f"\r  {GREEN}✓{RESET} Built dashboard frontend                    ")
 
     # Terminal-server dependencies (always needed)
     ts_dir = WORKSPACE / "dashboard" / "terminal-server"
     if (ts_dir / "package.json").exists():
-        print(f"  {DIM}Installing terminal-server dependencies...{RESET}")
-        os.system(f"cd {ts_dir} && npm install --silent")
-        print(f"  {GREEN}✓{RESET} Installed terminal-server dependencies")
+        print(f"  {DIM}Installing terminal-server dependencies...{RESET}", end="", flush=True)
+        os.system(f"cd {ts_dir} && npm install --silent > /dev/null 2>&1")
+        print(f"\r  {GREEN}✓{RESET} Installed terminal-server dependencies                    ")
 
     # Data dir for SQLite
     (WORKSPACE / "dashboard" / "data").mkdir(parents=True, exist_ok=True)

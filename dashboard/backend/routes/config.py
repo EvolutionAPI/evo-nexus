@@ -10,9 +10,20 @@ bp = Blueprint("config", __name__)
 
 @bp.route("/api/config/workspace-status")
 def workspace_status():
-    """Check if workspace.yaml exists (CLI setup was done)."""
+    """Check if workspace.yaml exists AND has owner configured."""
     config_path = WORKSPACE / "config" / "workspace.yaml"
-    return jsonify({"configured": config_path.is_file()})
+    if not config_path.is_file():
+        return jsonify({"configured": False})
+    # File exists but check if owner is actually filled in
+    try:
+        content = config_path.read_text(encoding="utf-8")
+        import yaml
+        data = yaml.safe_load(content) or {}
+        ws = data.get("workspace", data)
+        owner = (ws.get("owner") or "").strip()
+        return jsonify({"configured": bool(owner)})
+    except Exception:
+        return jsonify({"configured": False})
 
 
 @bp.route("/api/config/claude-md")
