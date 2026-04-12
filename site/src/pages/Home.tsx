@@ -13,11 +13,11 @@ import {
   SiInstagram, SiCanva, SiNotion, SiObsidian
 } from "react-icons/si";
 
-import MainLogo from "@assets/logo.png";
-import printOverview from "@assets/print-overview.png";
-import printAgents from "@assets/print-agents.png";
-import printIntegrations from "@assets/print-integrations.png";
-import printCosts from "@assets/print-costs.png";
+import MainLogo from "@assets/logo.webp";
+import printOverview from "@assets/print-overview.webp";
+import printAgents from "@assets/print-agents.webp";
+import printIntegrations from "@assets/print-integrations.webp";
+import printCosts from "@assets/print-costs.webp";
 
 const FadeIn = ({ children, delay = 0, className = "" }: { children: React.ReactNode, delay?: number, className?: string }) => {
   const ref = useRef(null);

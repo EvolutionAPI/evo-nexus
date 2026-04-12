@@ -132,7 +132,10 @@ def check_prerequisites():
                             install_cmd=f"su - {_sudo_user_uv} -c 'curl -LsSf https://astral.sh/uv/install.sh | sh'"):
             missing.append("uv")
         # Also ensure root has uv in PATH for the rest of setup
-        user_home = subprocess.run(["getent", "passwd", _sudo_user_uv], capture_output=True, text=True).stdout.split(":")[5] if _sudo_user_uv else ""
+        try:
+            user_home = subprocess.run(["getent", "passwd", _sudo_user_uv], capture_output=True, text=True).stdout.split(":")[5]
+        except (IndexError, Exception):
+            user_home = f"/home/{_sudo_user_uv}"
         user_uv = os.path.join(user_home, ".local", "bin") if user_home else ""
         if user_uv and user_uv not in os.environ.get("PATH", ""):
             os.environ["PATH"] = f"{user_uv}:{os.environ.get('PATH', '')}"
@@ -780,7 +783,7 @@ def main():
     frontend_dir = WORKSPACE / "dashboard" / "frontend"
     if (frontend_dir / "package.json").exists():
         print(f"  {DIM}Building dashboard frontend...{RESET}")
-        os.system(f"cd {frontend_dir} && npm install --silent && npm run build --silent 2>/dev/null")
+        os.system(f"cd {frontend_dir} && npm install --silent && npm run build --silent")
         print(f"  {GREEN}✓{RESET} Built dashboard frontend")
 
     # Terminal-server dependencies (always needed)

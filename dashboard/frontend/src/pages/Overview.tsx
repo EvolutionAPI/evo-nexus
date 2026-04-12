@@ -11,10 +11,9 @@ import {
   TrendingUp,
   TrendingDown,
   Minus,
-  MessageSquare,
   BarChart3,
   GitBranch,
-  Sun,
+  Settings,
   type LucideIcon,
 } from 'lucide-react'
 import { api } from '../lib/api'
@@ -203,8 +202,8 @@ function ActiveAgentsBar({ agents, loading }: { agents: ActiveAgent[]; loading: 
 
 // --- Quick Actions ---
 const QUICK_ACTIONS = [
-  { label: 'Run Morning Briefing', icon: Sun, to: '/chat', hint: 'Start your day' },
-  { label: 'Open Chat', icon: MessageSquare, to: '/chat', hint: 'Talk to agents' },
+  { label: 'Agents', icon: Bot, to: '/agents', hint: 'Talk to agents' },
+  { label: 'Providers', icon: Settings, to: '/providers', hint: 'AI configuration' },
   { label: 'View Costs', icon: BarChart3, to: '/costs', hint: 'Financial overview' },
   { label: 'Check GitHub', icon: GitBranch, to: '/integrations', hint: 'Repo status' },
 ]

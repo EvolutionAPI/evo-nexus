@@ -88,6 +88,8 @@ export default function Setup() {
         password,
       })
       await refreshUser()
+      // Redirect to providers page for AI configuration
+      window.location.href = '/providers'
     } catch (ex: unknown) {
       setError(ex instanceof Error ? ex.message : 'Setup failed')
     } finally {

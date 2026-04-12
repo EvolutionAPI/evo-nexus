@@ -6,7 +6,7 @@ The Knowledge Base page provides semantic search over your code, documentation, 
 
 Everything runs locally — no external APIs, no data leaves your machine.
 
-![Knowledge Base](../imgs/doc-knowledge.png)
+![Knowledge Base](../imgs/doc-knowledge.webp)
 
 ## Enabling MemPalace
 

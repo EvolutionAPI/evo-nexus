@@ -2,7 +2,7 @@
 
 The dashboard includes a built-in editor for the `.env` file, accessible from **Config** in the sidebar. This lets you manage API keys and integration settings without touching the terminal.
 
-![Config](../imgs/doc-config.png)
+![Config](../imgs/doc-config.webp)
 
 Requires the `config:manage` permission (admin role by default).
 

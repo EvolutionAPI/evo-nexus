@@ -51,7 +51,7 @@ Built-in roles cannot be deleted, but you can create custom roles with any permi
 
 The new user can immediately log in at the dashboard URL.
 
-![User Management](../imgs/doc-users.png)
+![User Management](../imgs/doc-users.webp)
 
 ### First User (Setup Wizard)
 
@@ -67,7 +67,7 @@ The very first user is created during the setup wizard when the dashboard starts
 4. Use the permission matrix to toggle actions per resource
 5. Click **Save**
 
-![Roles permission matrix](../imgs/doc-roles.png)
+![Roles permission matrix](../imgs/doc-roles.webp)
 
 ### Permission Matrix
 

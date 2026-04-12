@@ -1,6 +1,6 @@
 <p align="center">
   <a href="https://evolutionfoundation.com.br">
-    <img src="public/cover.png" alt="Evolution Foundation" height="60"/>
+    <img src="public/cover.webp" alt="Evolution Foundation" height="60"/>
   </a>
 </p>
 
@@ -61,12 +61,12 @@ It turns a single CLI installation into a team of **38 specialized agents** orga
 ## Screenshots
 
 <p align="center">
-  <img src="public/print-overview.png" alt="Overview" width="49%" />
-  <img src="public/print-agents.png" alt="Agents" width="49%" />
+  <img src="public/print-overview.webp" alt="Overview" width="49%" />
+  <img src="public/print-agents.webp" alt="Agents" width="49%" />
 </p>
 <p align="center">
-  <img src="public/print-integrations.png" alt="Integrations" width="49%" />
-  <img src="public/print-costs.png" alt="Costs" width="49%" />
+  <img src="public/print-integrations.webp" alt="Integrations" width="49%" />
+  <img src="public/print-costs.webp" alt="Costs" width="49%" />
 </p>
 
 ---
