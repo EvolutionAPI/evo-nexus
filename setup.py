@@ -68,6 +68,13 @@ def _check_tool(name, cmd, install_cmd=None, install_label=None):
 
 def check_prerequisites():
     """Check and auto-install required tools."""
+    # Update system packages first (ensures fresh package lists)
+    if os.getuid() == 0:
+        print(f"  {DIM}Updating system packages...{RESET}")
+        os.system("DEBIAN_FRONTEND=noninteractive apt-get update -y -qq")
+        os.system("DEBIAN_FRONTEND=noninteractive apt-get upgrade -y -qq -o Dpkg::Options::='--force-confdef' -o Dpkg::Options::='--force-confold'")
+        print(f"  {GREEN}✓{RESET} System packages updated")
+
     missing = []
 
     # build-essential (required for native npm packages like node-pty)
@@ -93,7 +100,7 @@ def check_prerequisites():
 
     # Node.js
     if not _check_tool("Node.js", ["node", "--version"],
-                        install_cmd="curl -fsSL https://deb.nodesource.com/setup_22.x | bash - && apt install -y nodejs 2>/dev/null || echo 'Install Node.js 18+ from https://nodejs.org'",
+                        install_cmd="curl -fsSL https://deb.nodesource.com/setup_24.x | bash - && apt install -y nodejs 2>/dev/null || echo 'Install Node.js 18+ from https://nodejs.org'",
                         install_label="https://nodejs.org"):
         missing.append("node")
 
@@ -170,26 +177,36 @@ def configure_access() -> dict:
     # Step 2: Stop nginx to free port 80 for certbot
     os.system("systemctl stop nginx 2>/dev/null")
 
-    # Step 3: SSL certificate — try certbot first, fallback to self-signed
+    # Step 3: SSL certificate — certbot by default, fallback to self-signed
     ssl_cert = ""
     ssl_key = ""
 
-    ssl_mode = ask("SSL certificate (1=certbot, 2=self-signed, 3=manual path)", "2")
+    ssl_mode = ask("SSL certificate (1=certbot, 2=self-signed, 3=manual path)", "1")
 
     if ssl_mode == "1":
-        # Certbot (requires port 80 free and domain pointing to this server)
-        if not shutil.which("certbot"):
-            print(f"  {DIM}Installing certbot...{RESET}")
-            os.system("apt install -y certbot 2>/dev/null")
-        print(f"  {DIM}Obtaining SSL certificate via certbot...{RESET}")
-        ret = os.system(f"certbot certonly --standalone -d {domain} --non-interactive --agree-tos --register-unsafely-without-email 2>/dev/null")
-        if ret == 0:
-            ssl_cert = f"/etc/letsencrypt/live/{domain}/fullchain.pem"
-            ssl_key = f"/etc/letsencrypt/live/{domain}/privkey.pem"
-            print(f"  {GREEN}✓{RESET} SSL certificate obtained via certbot")
+        certbot_cert = f"/etc/letsencrypt/live/{domain}/fullchain.pem"
+        certbot_key = f"/etc/letsencrypt/live/{domain}/privkey.pem"
+
+        # Reuse existing certbot cert if found
+        if os.path.isfile(certbot_cert) and os.path.isfile(certbot_key):
+            ssl_cert = certbot_cert
+            ssl_key = certbot_key
+            print(f"  {GREEN}✓{RESET} Existing certbot certificate found for {domain}")
         else:
-            print(f"  {YELLOW}!{RESET} certbot failed — falling back to self-signed")
-            ssl_mode = "2"
+            # Install certbot if needed
+            if not shutil.which("certbot"):
+                print(f"  {DIM}Installing certbot...{RESET}")
+                os.system("apt install -y certbot 2>/dev/null")
+            # Obtain certificate (requires domain DNS pointing to this server)
+            print(f"  {DIM}Obtaining SSL certificate via certbot...{RESET}")
+            ret = os.system(f"certbot certonly --standalone -d {domain} --non-interactive --agree-tos --register-unsafely-without-email")
+            if ret == 0:
+                ssl_cert = certbot_cert
+                ssl_key = certbot_key
+                print(f"  {GREEN}✓{RESET} SSL certificate obtained via certbot")
+            else:
+                print(f"  {YELLOW}!{RESET} certbot failed (DNS not pointing here?) — falling back to self-signed")
+                ssl_mode = "2"
 
     if ssl_mode == "2":
         # Self-signed (works with Cloudflare Full mode)
@@ -207,6 +224,10 @@ def configure_access() -> dict:
     if ssl_mode == "3":
         ssl_cert = ask("SSL cert path", f"/etc/nginx/ssl/{domain}.crt")
         ssl_key = ask("SSL key path", f"/etc/nginx/ssl/{domain}.key")
+
+    # Fix SSL key permissions (nginx needs read access, restrict from others)
+    if ssl_key and os.path.isfile(ssl_key):
+        os.chmod(ssl_key, 0o600)
 
     if not ssl_cert or not ssl_key:
         print(f"  {RED}✗{RESET} No SSL certificate available, using local mode")
