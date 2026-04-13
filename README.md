@@ -62,10 +62,13 @@ It turns a single CLI installation into a team of **38 specialized agents** orga
 
 <p align="center">
   <img src="public/print-overview.webp" alt="Overview" width="49%" />
-  <img src="public/print-agents.webp" alt="Agents" width="49%" />
+  <img src="public/print-chat.webp" alt="Agent Chat" width="49%" />
 </p>
 <p align="center">
+  <img src="public/print-agents.webp" alt="Agents" width="49%" />
   <img src="public/print-integrations.webp" alt="Integrations" width="49%" />
+</p>
+<p align="center">
   <img src="public/print-costs.webp" alt="Costs" width="49%" />
 </p>
 

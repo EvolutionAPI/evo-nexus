@@ -21,6 +21,7 @@ import printOverview from "@assets/print-overview.webp";
 import printAgents from "@assets/print-agents.webp";
 import printIntegrations from "@assets/print-integrations.webp";
 import printCosts from "@assets/print-costs.webp";
+import printChat from "@assets/print-chat.webp";
 
 const FadeIn = ({ children, delay = 0, className = "" }: { children: React.ReactNode, delay?: number, className?: string }) => {
   const ref = useRef(null);
@@ -302,6 +303,7 @@ export default function Home() {
                 { title: t("screenshots.multiAgents"), img: printAgents },
                 { title: t("screenshots.integrationsTitle"), img: printIntegrations },
                 { title: t("screenshots.costTracking"), img: printCosts },
+                { title: t("screenshots.chatUI"), img: printChat },
               ].map((item, i) => (
                 <div
                   key={i}

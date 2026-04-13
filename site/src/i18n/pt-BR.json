@@ -27,7 +27,8 @@
     "overview": "Dashboard Geral",
     "multiAgents": "Multi Agentes",
     "integrationsTitle": "Integrações",
-    "costTracking": "Controle de Custos"
+    "costTracking": "Controle de Custos",
+    "chatUI": "Chat com Agentes"
   },
   "features": {
     "sectionTitle": "Tudo incluso. Sem lock-in.",

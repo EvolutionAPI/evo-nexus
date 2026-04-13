@@ -27,7 +27,8 @@
     "overview": "Overview Dashboard",
     "multiAgents": "Multi Agents",
     "integrationsTitle": "Integrations",
-    "costTracking": "Cost Tracking"
+    "costTracking": "Cost Tracking",
+    "chatUI": "Agent Chat UI"
   },
   "features": {
     "sectionTitle": "Everything included. Zero lock-in.",
