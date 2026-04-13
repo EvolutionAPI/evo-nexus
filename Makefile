@@ -94,7 +94,7 @@ scheduler:          ## ⏰ Start routine scheduler (runs in background)
 dashboard-app:      ## 🖥️  Start Dashboard App (React + Flask + terminal-server, localhost:8080)
 	@cd dashboard/frontend && npm install --silent && npm run build
 	@echo "▶ Starting terminal-server on :32352 (background)..."
-	@pkill -f "dashboard/terminal-server/bin/server.js" 2>/dev/null || true
+	@pkill -f "[d]ashboard/terminal-server/bin/server.js" 2>/dev/null || true
 	@node dashboard/terminal-server/bin/server.js --dev > /tmp/terminal-server.log 2>&1 & echo $$! > /tmp/terminal-server.pid
 	@trap 'echo "▶ Stopping terminal-server..."; kill $$(cat /tmp/terminal-server.pid) 2>/dev/null; rm -f /tmp/terminal-server.pid' EXIT INT TERM; \
 		cd dashboard/backend && $(PYTHON) app.py
@@ -103,14 +103,14 @@ terminal-logs:      ## 📜 Tail terminal-server logs
 	@tail -f /tmp/terminal-server.log
 
 terminal-stop:      ## 🛑 Stop terminal-server (if orphaned)
-	@pkill -f "dashboard/terminal-server/bin/server.js" 2>/dev/null && echo "✅ terminal-server stopped" || echo "ℹ terminal-server not running"
+	@pkill -f "[d]ashboard/terminal-server/bin/server.js" 2>/dev/null && echo "✅ terminal-server stopped" || echo "ℹ terminal-server not running"
 	@rm -f /tmp/terminal-server.pid
 
 stop:               ## 🛑 Stop all EvoNexus services (dashboard + terminal-server)
 	@echo "Stopping EvoNexus services..."
-	@pkill -f "dashboard/terminal-server/bin/server.js" 2>/dev/null || true
-	@pkill -f "dashboard/backend.*app.py" 2>/dev/null || true
-	@pkill -f "app.py" 2>/dev/null || true
+	@pkill -f "[d]ashboard/terminal-server/bin/server.js" 2>/dev/null || true
+	@pkill -f "[d]ashboard/backend.*app.py" 2>/dev/null || true
+	@pkill -f "[a]pp.py" 2>/dev/null || true
 	@echo "✅ All services stopped"
 
 uninstall:          ## 🗑️  Full cleanup — stop services, remove nginx, data, deps (DESTRUCTIVE)
@@ -128,9 +128,9 @@ uninstall:          ## 🗑️  Full cleanup — stop services, remove nginx, da
 	if [ "$$confirm" = "UNINSTALL" ]; then \
 		echo ""; \
 		echo "Stopping services..."; \
-		pkill -f "dashboard/terminal-server/bin/server.js" 2>/dev/null || true; \
-		pkill -f "dashboard/backend.*app.py" 2>/dev/null || true; \
-		pkill -f "app.py" 2>/dev/null || true; \
+		pkill -f "[d]ashboard/terminal-server/bin/server.js" 2>/dev/null || true; \
+		pkill -f "[d]ashboard/backend.*app.py" 2>/dev/null || true; \
+		pkill -f "[a]pp.py" 2>/dev/null || true; \
 		echo "Removing nginx config..."; \
 		rm -f /etc/nginx/sites-enabled/evonexus 2>/dev/null || true; \
 		systemctl reload nginx 2>/dev/null || true; \
@@ -205,8 +205,8 @@ backup-s3:          ## ☁️  Backup workspace data to local ZIP + S3 upload
 
 restore:            ## 📥 Restore workspace from backup ZIP: make restore FILE=<path> [MODE=merge|replace]
 	@echo "▶ Stopping services before restore..."
-	@pkill -f "dashboard/terminal-server/bin/server.js" 2>/dev/null || true
-	@pkill -f "app.py" 2>/dev/null || true
+	@pkill -f "[d]ashboard/terminal-server/bin/server.js" 2>/dev/null || true
+	@pkill -f "[a]pp.py" 2>/dev/null || true
 	@sleep 1
 	$(PYTHON) backup.py restore $(FILE) --mode $(or $(MODE),merge)
 	@echo "▶ Restarting services..."
