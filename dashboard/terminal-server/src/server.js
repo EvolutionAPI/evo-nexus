@@ -7,6 +7,7 @@ const { v4: uuidv4 } = require('uuid');
 const ClaudeBridge = require('./claude-bridge');
 const { ChatBridge } = require('./chat-bridge');
 const SessionStore = require('./utils/session-store');
+const ChatLogger = require('./utils/chat-logger');
 
 class TerminalServer {
   constructor(options = {}) {
@@ -20,6 +21,7 @@ class TerminalServer {
     this.claudeBridge = new ClaudeBridge();
     this.chatBridge = new ChatBridge();
     this.sessionStore = new SessionStore();
+    this.chatLogger = new ChatLogger(this.baseFolder);
     this.autoSaveInterval = null;
     this.isShuttingDown = false;
 
@@ -403,6 +405,7 @@ class TerminalServer {
               ts: Date.now(),
             };
             chatSession.chatHistory.push(userMsg);
+            this.chatLogger.append(chatSession.agentName, wsInfo.claudeSessionId, userMsg);
 
             // Accumulate assistant response for history
             let assistantBlocks = [];
@@ -475,12 +478,14 @@ class TerminalServer {
                   }
                   // Save assistant message to history
                   if (assistantBlocks.length > 0) {
-                    chatSession.chatHistory.push({
+                    const assistantMsg = {
                       role: 'assistant',
                       blocks: assistantBlocks,
                       ts: Date.now(),
                       streaming: false,
-                    });
+                    };
+                    chatSession.chatHistory.push(assistantMsg);
+                    this.chatLogger.append(chatSession.agentName, wsInfo.claudeSessionId, assistantMsg);
                   }
                   this.saveSessionsToDisk();
                   this.broadcastToSession(wsInfo.claudeSessionId, { type: 'chat_complete' });
@@ -548,6 +553,17 @@ class TerminalServer {
     session.lastActivity = new Date();
     session.lastAccessed = Date.now();
 
+    // Restore chat history from JSONL logs if session cache is empty
+    let chatHistory = session.chatHistory || [];
+    if (chatHistory.length === 0 && session.agentName && session.mode === 'chat') {
+      const restored = this.chatLogger.read(session.agentName, claudeSessionId);
+      if (restored.length > 0) {
+        session.chatHistory = restored;
+        chatHistory = restored;
+        if (this.dev) console.log(`[chat-logger] Restored ${restored.length} messages for session ${claudeSessionId}`);
+      }
+    }
+
     this.sendToWebSocket(wsInfo.ws, {
       type: 'session_joined',
       sessionId: claudeSessionId,
@@ -555,7 +571,7 @@ class TerminalServer {
       workingDir: session.workingDir,
       active: session.active,
       outputBuffer: session.outputBuffer.slice(-200),
-      chatHistory: session.chatHistory || [],
+      chatHistory,
     });
 
     if (this.dev) console.log(`WebSocket ${wsId} joined session ${claudeSessionId}`);
