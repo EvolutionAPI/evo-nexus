@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.20.6] - 2026-04-13
+
+### Fixed
+
+- **PDF preview in workspace** — PDFs were downloading instead of rendering inline. Added `?inline=1` parameter to the download endpoint that serves with `Content-Disposition: inline` instead of `attachment`
+
 ## [0.20.5] - 2026-04-13
 
 ### Fixed

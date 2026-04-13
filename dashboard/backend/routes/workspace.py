@@ -595,7 +595,8 @@ def workspace_download():
     if is_admin_path:
         _audit("download", _repo_rel(full), size=full.stat().st_size)
 
-    return send_file(str(full), as_attachment=True, download_name=full.name)
+    inline = request.args.get("inline", "").lower() in ("1", "true")
+    return send_file(str(full), as_attachment=not inline, download_name=full.name)
 
 
 @bp.route("/api/workspace/recent")

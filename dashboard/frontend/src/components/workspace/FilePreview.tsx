@@ -253,7 +253,7 @@ export default function FilePreview({ path, onDownload }: FilePreviewProps) {
 
       {state.status === 'pdf' && (
         <iframe
-          src={`${API_BASE}/api/workspace/download?path=${encodeURIComponent(path)}`}
+          src={`${API_BASE}/api/workspace/download?path=${encodeURIComponent(path)}&inline=1`}
           className="w-full border-0"
           style={{ height: '100%' }}
           title={path}
