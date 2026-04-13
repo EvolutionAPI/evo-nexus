@@ -300,7 +300,7 @@ class TerminalServer {
     this.wss.on('connection', (ws, req) => this.handleWebSocketConnection(ws, req));
 
     return new Promise((resolve, reject) => {
-      server.listen(this.port, (err) => {
+      server.listen(this.port, '0.0.0.0', (err) => {
         if (err) return reject(err);
         this.server = server;
         resolve(server);
