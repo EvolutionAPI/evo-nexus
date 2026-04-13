@@ -69,6 +69,8 @@ export default function AgentDetail() {
   // Chat sessions
   const [chatSessions, setChatSessions] = useState<ChatSession[]>([])
   const [activeChatSessionId, setActiveChatSessionId] = useState<string | null>(null)
+  const [chatConnectError, setChatConnectError] = useState<string | null>(null)
+  const [chatConnecting, setChatConnecting] = useState(false)
 
   // Track agent visit for "Recent" section
   useEffect(() => {
@@ -195,13 +197,18 @@ export default function AgentDetail() {
   // Auto-create a chat session when switching to chat mode if none exist
   useEffect(() => {
     if (viewMode === 'chat' && chatSessions.length === 0 && name) {
+      setChatConnectError(null)
+      setChatConnecting(true)
       // Find-or-create via the for-agent endpoint
       fetch(`${TS_HTTP}/api/sessions/for-agent`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ agentName: name }),
       })
-        .then(r => r.ok ? r.json() : null)
+        .then(r => {
+          if (!r.ok) throw new Error(`HTTP ${r.status}`)
+          return r.json()
+        })
         .then(data => {
           if (!data) return
           const session: ChatSession = {
@@ -213,7 +220,12 @@ export default function AgentDetail() {
           setChatSessions([session])
           setActiveChatSessionId(data.sessionId)
         })
-        .catch(() => {})
+        .catch(() => {
+          setChatConnectError(`Could not reach terminal-server at ${TS_HTTP}. Is it running?`)
+        })
+        .finally(() => {
+          setChatConnecting(false)
+        })
     }
   }, [viewMode, chatSessions.length, name])
 
@@ -511,6 +523,8 @@ export default function AgentDetail() {
                 agent={name}
                 sessionId={activeChatSessionId || undefined}
                 accentColor={agentColor}
+                externalLoading={chatConnecting}
+                externalError={chatConnectError}
               />
             ) : (
               termTabs.length === 0 || activeTermTab === null ? (

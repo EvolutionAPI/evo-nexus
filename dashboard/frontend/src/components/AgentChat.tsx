@@ -11,10 +11,15 @@ interface AgentChatProps {
   agent: string
   sessionId?: string
   accentColor?: string
+  externalLoading?: boolean
+  externalError?: string | null
 }
 
 // Terminal-server URL
 const isLocal = import.meta.env.DEV || /^(localhost|127\.0\.0\.1)$/i.test(window.location.hostname)
+const TS_HTTP = isLocal
+  ? `http://${window.location.hostname}:32352`
+  : `${window.location.protocol}//${window.location.host}/terminal`
 const TS_WS = isLocal
   ? `ws://${window.location.hostname}:32352`
   : `${window.location.protocol === 'https:' ? 'wss:' : 'ws:'}//${window.location.host}/terminal`
@@ -45,7 +50,7 @@ type AssistantBlock =
 
 type Status = 'idle' | 'connecting' | 'running' | 'error'
 
-export default function AgentChat({ agent, sessionId, accentColor = '#00FFA7' }: AgentChatProps) {
+export default function AgentChat({ agent, sessionId, accentColor = '#00FFA7', externalLoading = false, externalError = null }: AgentChatProps) {
   const [messages, setMessages] = useState<ChatMessage[]>([])
   const [input, setInput] = useState('')
   const [status, setStatus] = useState<Status>('idle')
@@ -73,87 +78,111 @@ export default function AgentChat({ agent, sessionId, accentColor = '#00FFA7' }:
   useEffect(() => {
     if (!sessionId) return
 
-    const ws = new WebSocket(`${TS_WS}/ws`)
-    wsRef.current = ws
+    setStatus('connecting')
+    setErrorMsg(null)
+    let cancelled = false
+    let ws: WebSocket | null = null
 
-    ws.onopen = () => {
-      ws.send(JSON.stringify({ type: 'join_session', sessionId }))
-      setStatus('idle')
-    }
+    ;(async () => {
+      // 1) HTTP preflight — fails fast on ECONNREFUSED so we can show a real error
+      //    instead of hanging in 'connecting' forever (same pattern as AgentTerminal).
+      try {
+        const res = await fetch(`${TS_HTTP}/api/health`)
+        if (!res.ok) throw new Error(`HTTP ${res.status}`)
+      } catch {
+        if (cancelled) return
+        setStatus('error')
+        setErrorMsg(`Could not reach terminal-server at ${TS_HTTP}. Is it running?`)
+        return
+      }
+      if (cancelled) return
 
-    ws.onmessage = (ev) => {
-      let msg: any
-      try { msg = JSON.parse(ev.data) } catch { return }
+      // 2) Open WS
+      ws = new WebSocket(`${TS_WS}/ws`)
+      wsRef.current = ws
 
-      switch (msg.type) {
-        case 'session_joined':
-          // Restore chat history from server
-          if (msg.chatHistory && msg.chatHistory.length > 0) {
-            setMessages(msg.chatHistory.map((m: any) => ({
-              ...m,
-              streaming: false,
-            })))
-            scrollToBottom()
-          }
-          break
+      ws.onopen = () => {
+        ws!.send(JSON.stringify({ type: 'join_session', sessionId }))
+        setStatus('idle')
+      }
 
-        case 'chat_history':
-          // Fallback history restore
-          if (msg.messages?.length > 0) {
-            setMessages(msg.messages.map((m: any) => ({ ...m, streaming: false })))
-            scrollToBottom()
-          }
-          break
+      ws.onmessage = (ev) => {
+        if (cancelled) return
+        let msg: any
+        try { msg = JSON.parse(ev.data) } catch { return }
 
-        case 'chat_event':
-          handleChatEvent(msg.event || msg)
-          break
-
-        case 'chat_error':
-          setStatus('error')
-          setIsThinking(false)
-          setErrorMsg(msg.message || 'Unknown error')
-          setMessages(prev => [...prev, { role: 'system', text: `Error: ${msg.message}`, ts: Date.now() }])
-          break
-
-        case 'chat_complete':
-          setStatus('idle')
-          setIsThinking(false)
-          setMessages(prev => {
-            const copy = [...prev]
-            for (let i = copy.length - 1; i >= 0; i--) {
-              if (copy[i].role === 'assistant') {
-                copy[i] = { ...copy[i], streaming: false } as any
-                break
-              }
+        switch (msg.type) {
+          case 'session_joined':
+            // Restore chat history from server
+            if (msg.chatHistory && msg.chatHistory.length > 0) {
+              setMessages(msg.chatHistory.map((m: any) => ({
+                ...m,
+                streaming: false,
+              })))
+              scrollToBottom()
             }
-            return copy
-          })
-          break
+            break
 
-        case 'pong':
-          break
+          case 'chat_history':
+            // Fallback history restore
+            if (msg.messages?.length > 0) {
+              setMessages(msg.messages.map((m: any) => ({ ...m, streaming: false })))
+              scrollToBottom()
+            }
+            break
+
+          case 'chat_event':
+            handleChatEvent(msg.event || msg)
+            break
+
+          case 'chat_error':
+            setStatus('error')
+            setIsThinking(false)
+            setErrorMsg(msg.message || 'Unknown error')
+            setMessages(prev => [...prev, { role: 'system', text: `Error: ${msg.message}`, ts: Date.now() }])
+            break
+
+          case 'chat_complete':
+            setStatus('idle')
+            setIsThinking(false)
+            setMessages(prev => {
+              const copy = [...prev]
+              for (let i = copy.length - 1; i >= 0; i--) {
+                if (copy[i].role === 'assistant') {
+                  copy[i] = { ...copy[i], streaming: false } as any
+                  break
+                }
+              }
+              return copy
+            })
+            break
+
+          case 'pong':
+            break
+        }
       }
-    }
 
-    ws.onerror = () => {
-      setStatus('error')
-      setErrorMsg('WebSocket error')
-    }
-
-    ws.onclose = () => {
-      if (pingRef.current) { clearInterval(pingRef.current); pingRef.current = null }
-    }
-
-    pingRef.current = setInterval(() => {
-      if (ws.readyState === WebSocket.OPEN) {
-        ws.send(JSON.stringify({ type: 'ping' }))
+      ws.onerror = () => {
+        if (cancelled) return
+        setStatus('error')
+        setErrorMsg('WebSocket error')
       }
-    }, 25000)
+
+      ws.onclose = () => {
+        if (pingRef.current) { clearInterval(pingRef.current); pingRef.current = null }
+      }
+
+      pingRef.current = setInterval(() => {
+        if (ws!.readyState === WebSocket.OPEN) {
+          ws!.send(JSON.stringify({ type: 'ping' }))
+        }
+      }, 25000)
+    })()
 
     return () => {
+      cancelled = true
       if (pingRef.current) { clearInterval(pingRef.current); pingRef.current = null }
-      try { ws.close() } catch {}
+      try { ws?.close() } catch {}
       wsRef.current = null
     }
   }, [sessionId])
@@ -470,7 +499,10 @@ export default function AgentChat({ agent, sessionId, accentColor = '#00FFA7' }:
     setIsThinking(false)
   }, [])
 
-  const canSend = (input.trim().length > 0 || attachedFiles.length > 0) && status !== 'connecting'
+  const isConnecting = externalLoading || status === 'connecting'
+  const effectiveError = externalError || (status === 'error' ? errorMsg : null)
+  const inputDisabled = isConnecting || !!effectiveError
+  const canSend = (input.trim().length > 0 || attachedFiles.length > 0) && !inputDisabled && status !== 'running'
 
   return (
     <div
@@ -480,6 +512,25 @@ export default function AgentChat({ agent, sessionId, accentColor = '#00FFA7' }:
       onDragOver={handleDragOver}
       onDrop={handleDrop}
     >
+      {/* Corner status indicator */}
+      {(isConnecting || effectiveError) && (
+        <div
+          className="absolute top-3 right-3 z-40 flex items-center gap-1.5 px-2 py-1 rounded-full border text-[10px] max-w-[280px]"
+          style={{
+            background: effectiveError ? '#ef444415' : '#F59E0B15',
+            borderColor: effectiveError ? '#ef444440' : '#F59E0B40',
+            color: effectiveError ? '#ef4444' : '#F59E0B',
+          }}
+          title={effectiveError || 'Connecting...'}
+        >
+          <span
+            className={`w-1.5 h-1.5 rounded-full ${effectiveError ? '' : 'animate-pulse'}`}
+            style={{ background: effectiveError ? '#ef4444' : '#F59E0B' }}
+          />
+          <span className="truncate">{effectiveError || 'Connecting...'}</span>
+        </div>
+      )}
+
       {/* Drag-drop overlay */}
       {isDragging && (
         <div
@@ -681,14 +732,14 @@ export default function AgentChat({ agent, sessionId, accentColor = '#00FFA7' }:
               onKeyDown={handleKeyDown}
               placeholder={`Message @${agent}...`}
               rows={1}
-              className="flex-1 resize-none bg-transparent text-sm text-[#e6edf3] placeholder:text-[#667085] focus:outline-none max-h-32"
+              className="flex-1 resize-none bg-transparent text-sm text-[#e6edf3] placeholder:text-[#667085] focus:outline-none max-h-32 disabled:cursor-not-allowed disabled:opacity-60"
               style={{ minHeight: '28px' }}
               onInput={(e) => {
                 const el = e.currentTarget
                 el.style.height = 'auto'
                 el.style.height = Math.min(el.scrollHeight, 128) + 'px'
               }}
-              disabled={status === 'connecting'}
+              disabled={inputDisabled}
             />
 
             {/* Send / Stop */}
@@ -716,17 +767,6 @@ export default function AgentChat({ agent, sessionId, accentColor = '#00FFA7' }:
           </div>
         </div>
 
-        {/* Status bar */}
-        {status === 'connecting' && (
-          <div className="flex items-center justify-center gap-2 mt-2 text-[10px]">
-            <span className="text-[#F59E0B]">Connecting...</span>
-          </div>
-        )}
-        {status === 'error' && errorMsg && (
-          <div className="flex items-center justify-center mt-2">
-            <span className="text-[10px] text-[#ef4444]">{errorMsg}</span>
-          </div>
-        )}
       </div>
 
       {/* Typing indicator keyframe styles */}
