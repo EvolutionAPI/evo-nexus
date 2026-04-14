@@ -471,8 +471,8 @@ class Heartbeat(db.Model):
     goal_id = db.Column(db.String(100), nullable=True)  # FK stub for Feature 1.2
     required_secrets = db.Column(db.Text, nullable=True, default="[]")  # JSON array
     decision_prompt = db.Column(db.Text, nullable=False)
-    created_at = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc))
-    updated_at = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
+    created_at = db.Column(db.String(30), default=lambda: datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.%fZ"))
+    updated_at = db.Column(db.String(30), default=lambda: datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.%fZ"), onupdate=lambda: datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.%fZ"))
 
     runs = db.relationship("HeartbeatRun", backref="heartbeat", lazy="dynamic", cascade="all, delete-orphan")
     triggers = db.relationship("HeartbeatTriggerEvent", backref="heartbeat", lazy="dynamic", cascade="all, delete-orphan")
@@ -513,8 +513,8 @@ class Heartbeat(db.Model):
             "goal_id": self.goal_id,
             "required_secrets": self.required_secrets_list,
             "decision_prompt": self.decision_prompt,
-            "created_at": self.created_at.strftime("%Y-%m-%dT%H:%M:%S.%fZ") if self.created_at else None,
-            "updated_at": self.updated_at.strftime("%Y-%m-%dT%H:%M:%S.%fZ") if self.updated_at else None,
+            "created_at": self.created_at,
+            "updated_at": self.updated_at,
             "last_run": last_run.to_dict() if last_run else None,
             "run_count": self.runs.count(),
         }
@@ -526,8 +526,8 @@ class HeartbeatRun(db.Model):
     run_id = db.Column(db.String(36), primary_key=True)  # uuid4
     heartbeat_id = db.Column(db.String(100), db.ForeignKey("heartbeats.id", ondelete="CASCADE"), nullable=False)
     trigger_id = db.Column(db.String(36), nullable=True)
-    started_at = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc))
-    ended_at = db.Column(db.DateTime, nullable=True)
+    started_at = db.Column(db.String(30), default=lambda: datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.%fZ"))
+    ended_at = db.Column(db.String(30), nullable=True)
     duration_ms = db.Column(db.Integer, nullable=True)
     tokens_in = db.Column(db.Integer, nullable=True)
     tokens_out = db.Column(db.Integer, nullable=True)
@@ -542,8 +542,8 @@ class HeartbeatRun(db.Model):
             "run_id": self.run_id,
             "heartbeat_id": self.heartbeat_id,
             "trigger_id": self.trigger_id,
-            "started_at": self.started_at.strftime("%Y-%m-%dT%H:%M:%S.%fZ") if self.started_at else None,
-            "ended_at": self.ended_at.strftime("%Y-%m-%dT%H:%M:%S.%fZ") if self.ended_at else None,
+            "started_at": self.started_at,
+            "ended_at": self.ended_at,
             "duration_ms": self.duration_ms,
             "tokens_in": self.tokens_in,
             "tokens_out": self.tokens_out,
@@ -562,8 +562,8 @@ class HeartbeatTriggerEvent(db.Model):
     heartbeat_id = db.Column(db.String(100), db.ForeignKey("heartbeats.id", ondelete="CASCADE"), nullable=False)
     trigger_type = db.Column(db.String(50), nullable=False)  # interval, new_task, mention, manual, approval_decision
     payload = db.Column(db.Text, nullable=True, default="{}")  # JSON
-    created_at = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc))
-    consumed_at = db.Column(db.DateTime, nullable=True)
+    created_at = db.Column(db.String(30), default=lambda: datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.%fZ"))
+    consumed_at = db.Column(db.String(30), nullable=True)
     coalesced_into = db.Column(db.String(36), nullable=True)  # trigger id that absorbed this (debounce)
 
     @property
@@ -579,8 +579,8 @@ class HeartbeatTriggerEvent(db.Model):
             "heartbeat_id": self.heartbeat_id,
             "trigger_type": self.trigger_type,
             "payload": self.payload_dict,
-            "created_at": self.created_at.strftime("%Y-%m-%dT%H:%M:%S.%fZ") if self.created_at else None,
-            "consumed_at": self.consumed_at.strftime("%Y-%m-%dT%H:%M:%S.%fZ") if self.consumed_at else None,
+            "created_at": self.created_at,
+            "consumed_at": self.consumed_at,
             "coalesced_into": self.coalesced_into,
         }
 
