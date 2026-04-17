@@ -43,6 +43,10 @@ ALLOWED_ENV_VARS = frozenset({
     "OPENAI_BASE_URL",
     "OPENAI_API_KEY",
     "OPENAI_MODEL",
+    # Codex OAuth support (OpenClaude 0.3+ reads ~/.codex/auth.json automatically,
+    # but these allow overriding the auth file path or providing a raw token)
+    "CODEX_AUTH_JSON_PATH",
+    "CODEX_API_KEY",
     "GEMINI_API_KEY",
     "GEMINI_MODEL",
     "AWS_REGION",
@@ -422,7 +426,10 @@ def openai_auth_complete():
     _save_codex_auth(resp.json())
 
     config = _read_config()
-    config["active_provider"] = "openai"
+    # Use dedicated codex_auth provider key when OAuth is used (falls back to
+    # openai for backward compatibility if codex_auth is not configured).
+    providers = config.get("providers", {})
+    config["active_provider"] = "codex_auth" if "codex_auth" in providers else "openai"
     _write_config(config)
 
     return jsonify({"status": "ok", "message": "Autenticado com sucesso!"})
@@ -490,7 +497,8 @@ def openai_device_poll():
     _save_codex_auth(token_resp.json())
 
     config = _read_config()
-    config["active_provider"] = "openai"
+    providers = config.get("providers", {})
+    config["active_provider"] = "codex_auth" if "codex_auth" in providers else "openai"
     _write_config(config)
 
     session.pop("openai_device_auth_id", None)
@@ -515,9 +523,17 @@ def openai_status():
             "authenticated": has_access,
             "method": "codex_oauth",
             "auth_mode": auth.get("auth_mode", "unknown"),
+            "auth_file": str(CODEX_AUTH_FILE),
         })
     except (json.JSONDecodeError, OSError):
         return jsonify({"authenticated": False, "method": "none"})
+
+
+@bp.route("/api/providers/codex_auth/status")
+@login_required
+def codex_auth_status():
+    """Alias for openai/status — reflects the dedicated codex_auth provider key."""
+    return openai_status()
 
 
 @bp.route("/api/providers/openai/logout", methods=["POST"])
