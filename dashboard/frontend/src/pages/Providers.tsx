@@ -54,6 +54,124 @@ function Toggle({ on, onChange, disabled }: { on: boolean; onChange: (v: boolean
   )
 }
 
+// Custom combobox — styled dropdown that lets users pick a discovered model
+// but also accept free-text input for edge cases (new models, custom routes).
+// Replaces <datalist>, whose browser-native rendering was unreliable
+// (appeared as an OS-level sidebar with "owned_by" noise, no consistent
+// styling, and click-to-select that looked like plain text insertion
+// rather than a dropdown).
+interface ComboboxOption { id: string; description?: string; owned_by?: string }
+interface ModelComboboxProps {
+  value: string
+  onChange: (v: string) => void
+  options: ComboboxOption[]
+  placeholder?: string
+  inputClassName: string
+}
+
+function ModelCombobox({ value, onChange, options, placeholder, inputClassName }: ModelComboboxProps) {
+  const [open, setOpen] = useState(false)
+  const [query, setQuery] = useState(value)
+  const wrapperRef = useRef<HTMLDivElement>(null)
+
+  // Keep internal query in sync if parent resets the value externally
+  useEffect(() => { setQuery(value) }, [value])
+
+  // Close on outside click
+  useEffect(() => {
+    if (!open) return
+    const handler = (e: MouseEvent) => {
+      if (wrapperRef.current && !wrapperRef.current.contains(e.target as Node)) {
+        setOpen(false)
+      }
+    }
+    document.addEventListener('mousedown', handler)
+    return () => document.removeEventListener('mousedown', handler)
+  }, [open])
+
+  const q = query.toLowerCase().trim()
+  const filtered = q
+    ? options.filter(o => o.id.toLowerCase().includes(q))
+    : options
+
+  const pick = (id: string) => {
+    setQuery(id)
+    onChange(id)
+    setOpen(false)
+  }
+
+  return (
+    <div ref={wrapperRef} className="relative">
+      <div className="relative">
+        <input
+          type="text"
+          value={query}
+          onChange={(e) => {
+            const v = e.target.value
+            setQuery(v)
+            onChange(v)
+            if (!open) setOpen(true)
+          }}
+          onFocus={() => setOpen(true)}
+          onKeyDown={(e) => {
+            if (e.key === 'Escape') setOpen(false)
+            if (e.key === 'ArrowDown' && !open) setOpen(true)
+          }}
+          placeholder={placeholder}
+          className={`${inputClassName} pr-9`}
+          autoComplete="off"
+          role="combobox"
+          aria-expanded={open}
+        />
+        <button
+          type="button"
+          onClick={() => setOpen(o => !o)}
+          tabIndex={-1}
+          className="absolute right-2 top-1/2 -translate-y-1/2 p-1 rounded text-[#5a6b7f] hover:text-[#e2e8f0] transition-colors"
+          aria-label="Toggle model list"
+        >
+          <svg width="12" height="12" viewBox="0 0 12 12" fill="none" className={`transition-transform ${open ? 'rotate-180' : ''}`}>
+            <path d="M2 4l4 4 4-4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+          </svg>
+        </button>
+      </div>
+      {open && filtered.length > 0 && (
+        <div className="absolute z-[60] top-full left-0 right-0 mt-1 max-h-64 overflow-y-auto rounded-lg bg-[#0b1018] border border-[#1e2a3a] shadow-[0_8px_24px_rgba(0,0,0,0.5)]">
+          {filtered.map(m => {
+            const isActive = m.id === value
+            return (
+              <button
+                key={m.id}
+                type="button"
+                onClick={() => pick(m.id)}
+                className={`w-full text-left px-3 py-2 transition-colors border-b border-[#152030] last:border-b-0 ${
+                  isActive
+                    ? 'bg-[#00FFA7]/10 text-[#00FFA7]'
+                    : 'text-[#e2e8f0] hover:bg-[#152030]'
+                }`}
+              >
+                <div className="font-mono text-xs">{m.id}</div>
+                {m.description && (
+                  <div className={`text-[10px] mt-0.5 ${isActive ? 'text-[#00FFA7]/70' : 'text-[#5a6b7f]'}`}>
+                    {m.description}
+                  </div>
+                )}
+              </button>
+            )
+          })}
+        </div>
+      )}
+      {open && filtered.length === 0 && (
+        <div className="absolute z-[60] top-full left-0 right-0 mt-1 rounded-lg bg-[#0b1018] border border-[#1e2a3a] shadow-[0_8px_24px_rgba(0,0,0,0.5)]">
+          <div className="px-3 py-2.5 text-[11px] text-[#5a6b7f]">
+            Nenhum modelo corresponde — {q ? 'ajuste a busca' : 'use o texto livre'}
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
 export default function Providers() {
   const [providers, setProviders] = useState<Provider[]>([])
   const [activeProvider, setActiveProvider] = useState('anthropic')
@@ -414,23 +532,15 @@ export default function Providers() {
 
                         {hasDiscoveredModels ? (
                           <>
-                            {/* datalist-backed combobox: shows dropdown but accepts free text */}
-                            <input
-                              type="text"
-                              list={`${prov.id}-models`}
+                            <ModelCombobox
                               value={editVars[key] || ''}
-                              onChange={(e) => setEditVars(prev => ({ ...prev, [key]: e.target.value }))}
+                              onChange={(v) => setEditVars(prev => ({ ...prev, [key]: v }))}
+                              options={currentList!.models}
                               placeholder={prov.default_model || 'Selecione ou digite um modelo'}
-                              className={inp}
-                              autoComplete="off"
+                              inputClassName={inp}
                             />
-                            <datalist id={`${prov.id}-models`}>
-                              {currentList!.models.map(m => (
-                                <option key={m.id} value={m.id}>{m.description || m.owned_by || ''}</option>
-                              ))}
-                            </datalist>
                             <p className="text-[10px] text-[#3d4f65] mt-1">
-                              {currentList!.models.length} modelos disponíveis. Clique no campo para ver a lista.
+                              {currentList!.models.length} modelos disponíveis. Clique no campo ou na seta para abrir a lista.
                             </p>
                           </>
                         ) : (

@@ -49,13 +49,29 @@ class ClaudeBridge {
         )
       );
 
-      // If Codex OAuth auth.json exists, remove OPENAI_API_KEY to let
-      // OpenClaude use the OAuth token instead of a potentially stale key
-      if (active === 'openai' || active === 'codex_auth') {
-        const codexAuthPath = path.join(process.env.HOME || '/', '.codex', 'auth.json');
-        if (fs.existsSync(codexAuthPath)) {
+      // Provider isolation — the active_provider in providers.json is the
+      // user's explicit choice between API-key mode ('openai') and OAuth
+      // mode ('codex_auth'). Respect it literally:
+      //
+      //   active === 'codex_auth' → OAuth mode: remove any stale
+      //       OPENAI_API_KEY from the provider env so OpenClaude falls
+      //       back to ~/.codex/auth.json (the OAuth token source).
+      //
+      //   active === 'openai'    → API-key mode: keep OPENAI_API_KEY.
+      //       Even if ~/.codex/auth.json happens to exist on disk (from
+      //       a past OAuth login), the user has chosen API-key mode now.
+      //       Previously this branch also deleted the key, which caused
+      //       the two cards to bleed into each other on toggle.
+      //
+      //   anything else          → untouched.
+      if (active === 'codex_auth') {
+        if ('OPENAI_API_KEY' in envVars) {
           delete envVars['OPENAI_API_KEY'];
-          console.log('[provider] Codex auth.json found — using OAuth token, removing OPENAI_API_KEY');
+          console.log('[provider] codex_auth active — stripping OPENAI_API_KEY, OpenClaude will use ~/.codex/auth.json');
+        }
+        const codexAuthPath = path.join(process.env.HOME || '/', '.codex', 'auth.json');
+        if (!fs.existsSync(codexAuthPath)) {
+          console.warn('[provider] codex_auth active but ~/.codex/auth.json is missing — run OAuth login in the Providers page');
         }
       }
 
