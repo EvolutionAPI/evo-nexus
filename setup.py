@@ -3,6 +3,11 @@
 EvoNexus — Setup Wizard
 Generates workspace configuration, CLAUDE.md, .env, and folder structure.
 Usage: python setup.py  (or: make setup)
+
+This file also doubles as a setuptools build backend when invoked by pip
+(e.g. via `pip install -e .` or `npx @evoapi/evo-nexus`). In that case the
+interactive wizard is skipped and only package metadata is produced — see
+`_IS_BUILD_BACKEND` below.
 """
 
 import os
@@ -13,17 +18,47 @@ from pathlib import Path
 
 WORKSPACE = Path(__file__).parent
 
-# Detect if running in interactive terminal (vs pip/automated context)
-IS_TTY = sys.stdin.isatty()
+# ── Non-interactive / build-backend detection ──────────────────────────
+#
+# We use TWO signals (narrow and explicit) to avoid the false-positive
+# problem Sourcery flagged on upstream PR #11:
+#
+#   1. _IS_TTY    — true when stdin is an interactive terminal.
+#                   Fixes the EOFError from `input()` under pip/npx.
+#
+#   2. _IS_BUILD_BACKEND — true ONLY when setuptools/pip is the caller.
+#                   Detected via the explicit env var EVO_NEXUS_INSTALL=1
+#                   (set by cli/bin/cli.mjs) or narrow argv markers that
+#                   setuptools always injects (egg_info / dist_info /
+#                   bdist_wheel / --editable). We deliberately do NOT use
+#                   generic args like --version because a direct call
+#                   `python setup.py --version` should remain interactive-ish.
+#
+_IS_TTY = sys.stdin.isatty() if sys.stdin else False
 
-# Detect if running as pip/setuptools build backend (not interactive setup)
-# pip sets these env vars when invoking setup.py as a build backend
+_BUILD_ARGV_MARKERS = {"egg_info", "dist_info", "bdist_wheel", "sdist", "--editable"}
 _IS_BUILD_BACKEND = (
-    "SETUPTOOLS_USE_DISTUTILS" in os.environ
-    or "PIP_REQUIREMENTS_GEN" in os.environ
-    or os.environ.get("EVO_NEXUS_INSTALL") == "1"
-    or any(arg in sys.argv for arg in ["--with-specifier-add", "egg_info", "--version", "dist_info", "--editable"])
+    os.environ.get("EVO_NEXUS_INSTALL") == "1"
+    or any(a in _BUILD_ARGV_MARKERS for a in sys.argv[1:])
 )
+
+
+def _read_version_from_pyproject() -> str:
+    """Single source of truth for the package version.
+
+    Reads [project].version from pyproject.toml. Avoids the drift risk
+    Sourcery flagged on PR #11 (hardcoded "0.23.2" string).
+    """
+    try:
+        import re
+        pyproject = (WORKSPACE / "pyproject.toml").read_text(encoding="utf-8")
+        match = re.search(r'^version\s*=\s*"([^"]+)"', pyproject, re.MULTILINE)
+        if match:
+            return match.group(1)
+    except (OSError, ImportError):
+        pass
+    return "0.0.0"  # fallback; never expected in practice
+
 
 # ANSI colors
 GREEN = "\033[92m"
@@ -44,7 +79,13 @@ def banner():
 
 
 def _check_tool(name, cmd, install_cmd=None, install_label=None):
-    """Check if a tool is installed. If not, offer to install it."""
+    """Check if a tool is installed. If not, offer to install it.
+
+    In non-interactive contexts (pip build backend, npx pipe, CI) we skip
+    the input() prompt — this is what fixes EOFError from upstream PR #11.
+    When auto-confirm is appropriate (service user bootstrap), callers can
+    pass EVO_NEXUS_AUTO_INSTALL=1 to proceed without prompting.
+    """
     try:
         result = subprocess.run(cmd, capture_output=True, text=True, timeout=10)
         if result.returncode == 0:
@@ -56,13 +97,18 @@ def _check_tool(name, cmd, install_cmd=None, install_label=None):
 
     if install_cmd:
         print(f"  {YELLOW}!{RESET} {name} not found")
-        # Only ask for interactive input if stdin is a TTY
-        if IS_TTY:
-            choice = input(f"    Install {name}? (Y/n): ").strip().lower()
+        # Non-interactive: skip the prompt entirely. Either auto-install
+        # (when EVO_NEXUS_AUTO_INSTALL=1) or report missing.
+        auto_install = os.environ.get("EVO_NEXUS_AUTO_INSTALL") == "1"
+        if not _IS_TTY and not auto_install:
+            print(f"    {DIM}Skipping auto-install in non-interactive mode.{RESET}")
+            print(f"    {DIM}Run manually: {install_cmd}{RESET}")
+            return False
+
+        if auto_install:
+            choice = "y"
         else:
-            # Non-interactive (pip/automated): skip install attempt, mark as missing
-            print(f"    {DIM}Skipping auto-install in non-interactive mode{RESET}")
-            choice = "n"
+            choice = input(f"    Install {name}? (Y/n): ").strip().lower()
         if choice in ("", "y", "yes", "s", "sim"):
             print(f"  {DIM}Installing {name}...{RESET}", end="", flush=True)
             ret = os.system(f"{install_cmd} > /dev/null 2>&1")
@@ -407,7 +453,8 @@ def choose_provider() -> str:
             "providers": {
                 "anthropic": {"name": "Anthropic (Claude nativo)", "cli_command": "claude", "env_vars": {}, "requires_logout": False},
                 "openrouter": {"name": "OpenRouter", "cli_command": "openclaude", "env_vars": {"CLAUDE_CODE_USE_OPENAI": "1", "OPENAI_BASE_URL": "", "OPENAI_API_KEY": "", "OPENAI_MODEL": ""}, "default_base_url": "https://openrouter.ai/api/v1", "default_model": "anthropic/claude-sonnet-4", "requires_logout": True},
-                "openai": {"name": "OpenAI", "description": "GPT-4.x via API Key ou GPT-5.x via Codex OAuth", "cli_command": "openclaude", "env_vars": {"CLAUDE_CODE_USE_OPENAI": "1", "OPENAI_API_KEY": "", "OPENAI_MODEL": ""}, "default_model": "gpt-4.1", "requires_logout": True},
+                "openai": {"name": "OpenAI (API Key)", "description": "GPT-4.x / GPT-5.x via API Key da OpenAI", "cli_command": "openclaude", "env_vars": {"CLAUDE_CODE_USE_OPENAI": "1", "OPENAI_API_KEY": "", "OPENAI_MODEL": ""}, "default_model": "gpt-4.1", "requires_logout": True},
+                "codex_auth": {"name": "OpenAI Codex (OAuth)", "description": "GPT-5.x via ChatGPT Codex — login OAuth, sem API key", "cli_command": "openclaude", "env_vars": {"CLAUDE_CODE_USE_OPENAI": "1", "OPENAI_MODEL": "codexplan"}, "default_model": "codexplan", "auth_type": "oauth", "auth_file": "~/.codex/auth.json", "requires_logout": True, "setup_hint": "Use o botão Login para autenticar via OAuth do ChatGPT"},
                 "gemini": {"name": "Google Gemini (em breve)", "cli_command": "openclaude", "env_vars": {"CLAUDE_CODE_USE_GEMINI": "1", "GEMINI_API_KEY": "", "GEMINI_MODEL": ""}, "default_model": "gemini-2.5-pro", "requires_logout": True, "coming_soon": True},
                 "bedrock": {"name": "AWS Bedrock (em breve)", "cli_command": "openclaude", "env_vars": {"CLAUDE_CODE_USE_BEDROCK": "1", "AWS_REGION": "", "AWS_BEARER_TOKEN_BEDROCK": ""}, "requires_logout": True, "coming_soon": True},
                 "vertex": {"name": "Google Vertex AI (em breve)", "cli_command": "openclaude", "env_vars": {"CLAUDE_CODE_USE_VERTEX": "1", "ANTHROPIC_VERTEX_PROJECT_ID": "", "CLOUD_ML_REGION": ""}, "default_region": "us-east5", "requires_logout": True, "coming_soon": True},
@@ -773,10 +820,6 @@ WantedBy=multi-user.target
 
 
 def main():
-    # If running as pip build backend, just return (pip handles deps via pyproject.toml)
-    if _IS_BUILD_BACKEND:
-        return
-
     banner()
 
     # Prerequisites check
@@ -946,6 +989,15 @@ def main():
             os.system(f"su - {service_user} -c 'npm install -g @anthropic-ai/claude-code --prefix ~/.local' >/dev/null 2>&1")
             print(f"  {GREEN}✓{RESET} Claude Code installed")
 
+        # OpenClaude is required for non-Anthropic providers (OpenAI, Codex OAuth,
+        # OpenRouter, Gemini, etc.). Without it, switching provider in the
+        # dashboard does not work for the service user.
+        ret = os.system(f"su - {service_user} -c 'export PATH=$HOME/.local/bin:$PATH && command -v openclaude' >/dev/null 2>&1")
+        if ret != 0:
+            print(f"  {DIM}Installing OpenClaude for {service_user}...{RESET}")
+            os.system(f"su - {service_user} -c 'npm install -g @gitlawb/openclaude --prefix ~/.local' >/dev/null 2>&1")
+            print(f"  {GREEN}✓{RESET} OpenClaude installed")
+
         # Sync deps as service user
         print(f"  {DIM}Syncing dependencies as {service_user}...{RESET}")
         os.system(f"su - {service_user} -c 'export PATH=$HOME/.local/bin:$PATH && cd {service_dir} && uv sync -q' 2>/dev/null")
@@ -1065,16 +1117,27 @@ nohup {install_dir}/.venv/bin/python app.py > {logs_dir}/dashboard.log 2>&1 &
 
 
 if __name__ == "__main__":
-    # When pip/setuptools runs setup.py as build backend, use setup() for metadata
-    # When called directly (python setup.py), run the interactive wizard
+    # When invoked as a setuptools/pip build backend (via `pip install -e .`
+    # or the `npx @evoapi/evo-nexus` CLI, which sets EVO_NEXUS_INSTALL=1),
+    # we must NOT run the interactive wizard — there is no TTY, and input()
+    # would raise EOFError. Instead expose proper package metadata and let
+    # pip/setuptools do its job.
+    #
+    # This block improves on upstream PR #11 in two ways:
+    #   1. Version comes from pyproject.toml (single source of truth),
+    #      not a hardcoded string that drifts across releases.
+    #   2. find_packages() discovers real packages, so any wheel built
+    #      this way actually contains code (PR #11 shipped packages=[]).
     if _IS_BUILD_BACKEND:
-        from setuptools import setup as _setup
+        from setuptools import setup as _setup, find_packages
         _setup(
             name="evo-nexus",
-            version="0.23.2",
-            py_modules=[],
+            version=_read_version_from_pyproject(),
+            description="Unofficial open source toolkit for Claude Code — AI-powered business operating system",
+            packages=find_packages(exclude=("tests", "tests.*", "workspace", "workspace.*")),
             package_dir={"": "."},
-            packages=[],
+            include_package_data=True,
+            python_requires=">=3.10",
         )
     else:
         main()
