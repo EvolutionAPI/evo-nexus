@@ -141,7 +141,14 @@ class ClaudeBridge {
     if (this.sessions.has(sessionId)) {
       const existing = this.sessions.get(sessionId);
       if (existing.active) {
-        throw new Error(`Session ${sessionId} already exists`);
+        // Idempotent: a duplicate startSession can arrive when the WebSocket
+        // reconnects through a reverse proxy (Traefik) and the frontend
+        // re-sends start_claude before learning the session is still alive.
+        // Returning the existing session instead of throwing prevents a
+        // confusing "Session already exists" toast on the user's terminal
+        // while keeping the original PTY intact.
+        console.log(`[bridge] startSession(${sessionId}) — already active, returning existing session`);
+        return existing;
       }
       // Orphaned dead session — clean up and restart
       if (existing.process) {

@@ -22,6 +22,26 @@ FLASK_PORT="${EVONEXUS_PORT:-8080}"
 
 echo "[start-dashboard] terminal-server on :${TERMINAL_PORT}, Flask on :${FLASK_PORT}"
 
+# ----------------------------------------------------------------------------
+# Pre-seed Claude Code global settings so the first-run theme/onboarding
+# prompts are skipped on every new agent terminal. Each agent runs in its
+# own working directory, which Claude Code treats as a separate project —
+# without this, the user has to pick a theme on every single agent.
+# Only writes the file if it doesn't already exist (preserves user choices).
+# ----------------------------------------------------------------------------
+mkdir -p /root/.claude
+if [ ! -f /root/.claude/settings.json ]; then
+    echo "[start-dashboard] seeding /root/.claude/settings.json with default theme"
+    cat > /root/.claude/settings.json <<'EOF'
+{
+  "theme": "dark",
+  "hasCompletedOnboarding": true,
+  "hasSeenWelcome": true,
+  "telemetry": false
+}
+EOF
+fi
+
 # Start terminal-server in the background
 node /workspace/dashboard/terminal-server/bin/server.js --port "${TERMINAL_PORT}" &
 TERMINAL_PID=$!
