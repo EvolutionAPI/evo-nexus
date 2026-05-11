@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { useToast } from '../components/Toast'
 import { useConfirm } from '../components/ConfirmDialog'
-import { Plus, Pencil, Trash2, X, Play, Copy, RefreshCw, KeyRound } from 'lucide-react'
+import { Plus, Pencil, Trash2, X, Play, Copy, RefreshCw, KeyRound, RotateCcw, AlertTriangle } from 'lucide-react'
 import { api } from '../lib/api'
 import { useAuth } from '../context/AuthContext'
 
@@ -29,9 +29,30 @@ interface Execution {
   status: string
   result_summary: string | null
   error: string | null
+  error_category: string | null
   duration_seconds: number | null
   started_at: string
   completed_at: string | null
+  idempotency_key: string | null
+  last_replay_at: string | null
+}
+
+interface Stats {
+  window_days: number
+  total_executions: number
+  by_status: Record<string, number>
+  retries_observed: number
+  idempotent_replays: number
+  dlq_size: number
+  wpp_command_count: number
+  circuit_breaker_watermark_hit: boolean
+}
+
+interface ReplayPreview {
+  execId: number
+  recipient: string
+  command: string
+  timestamp: string
 }
 
 const SOURCES = ['github', 'stripe', 'linear', 'telegram', 'discord', 'custom'] as const
@@ -55,6 +76,8 @@ const STATUS_COLORS: Record<string, string> = {
   running: 'bg-blue-500/10 text-blue-400',
   completed: 'bg-green-500/10 text-green-400',
   failed: 'bg-red-500/10 text-red-400',
+  failed_retryable: 'bg-orange-500/10 text-orange-400',
+  replayed: 'bg-purple-500/10 text-purple-400',
 }
 
 const emptyForm = {
@@ -79,6 +102,11 @@ export default function Triggers() {
   const [executions, setExecutions] = useState<Execution[]>([])
   const [execLoading, setExecLoading] = useState(false)
   const [newSecret, setNewSecret] = useState<{ id: number; secret: string } | null>(null)
+  // Replay modal state (Step 5 — PR-3)
+  const [replayPreview, setReplayPreview] = useState<ReplayPreview | null>(null)
+  const [replaying, setReplaying] = useState(false)
+  // Stats (Step 6 — PR-3)
+  const [stats, setStats] = useState<Stats | null>(null)
 
   const fetchTriggers = () => {
     let url = '/triggers'
@@ -105,6 +133,9 @@ export default function Triggers() {
       .then((data: { triggers: TriggerItem[] }) => setTriggers(data.triggers || []))
       .catch(() => setTriggers([]))
       .finally(() => setLoading(false))
+
+    // Load operational stats badge (Step 6 — PR-3)
+    api.get('/triggers/stats?days=1').then((d: Stats) => setStats(d)).catch(() => {})
   }, [filter])
 
   const openCreate = () => {
@@ -197,6 +228,58 @@ export default function Triggers() {
       setExecutions([])
     }
     setExecLoading(false)
+    // Refresh stats badge whenever executions modal opens
+    api.get('/triggers/stats?days=1').then((d: Stats) => setStats(d)).catch(() => {})
+  }
+
+  /** Build replay preview from execution event_data and open the confirmation modal. */
+  const openReplayPreview = (ex: Execution) => {
+    const d = ex.event_data as Record<string, unknown>
+    const dataObj = (d?.data as Record<string, unknown>) || {}
+    const keyObj = (dataObj?.key as Record<string, unknown>) || {}
+    // Try WPP paths first, then fall back to a generic summary
+    const recipient =
+      (keyObj?.remoteJid as string) ||
+      (dataObj?.remoteJid as string) ||
+      (d?.phone as string) ||
+      (d?.from as string) ||
+      '—'
+    const msgObj = (dataObj?.message as Record<string, unknown>) || {}
+    const command =
+      (msgObj?.conversation as string) ||
+      (msgObj?.extendedTextMessage as Record<string, unknown>)?.text as string ||
+      (d?.command as string) ||
+      (d?.text as string) ||
+      JSON.stringify(d).slice(0, 120)
+    setReplayPreview({
+      execId: ex.id,
+      recipient,
+      command: String(command || '—'),
+      timestamp: ex.started_at,
+    })
+  }
+
+  const confirmReplay = async () => {
+    if (!replayPreview) return
+    setReplaying(true)
+    try {
+      const result = await api.post(`/triggers/executions/${replayPreview.execId}/replay`)
+      toast.success(`Replay iniciado — nova execução #${result.new_execution_id}`)
+      setReplayPreview(null)
+      // Refresh executions list
+      if (execModal) {
+        const data = await api.get(`/triggers/${execModal.triggerId}/executions`)
+        setExecutions(data.executions || [])
+      }
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : String(e)
+      if (msg.includes('rate_limited') || msg.includes('429')) {
+        toast.error('Rate limit: aguarde 60s antes de fazer replay novamente')
+      } else {
+        toast.error('Erro ao fazer replay', msg)
+      }
+    }
+    setReplaying(false)
   }
 
   const handleRegenerateSecret = async (id: number) => {
@@ -266,6 +349,27 @@ export default function Triggers() {
           </button>
         )}
       </div>
+
+      {/* Stats badge (Step 6 — PR-3) */}
+      {stats && (
+        <div className="flex items-center gap-3 mb-4 flex-wrap">
+          <span className="text-[11px] text-[#667085]">
+            DLQ: <span className={`font-medium ${stats.dlq_size > 0 ? 'text-orange-400' : 'text-[#e6edf3]'}`}>{stats.dlq_size}</span>
+          </span>
+          <span className="text-[11px] text-[#667085]">
+            Replays hoje: <span className="font-medium text-[#e6edf3]">{stats.idempotent_replays}</span>
+          </span>
+          <span className="text-[11px] text-[#667085]">
+            WPP: <span className="font-medium text-[#e6edf3]">{stats.wpp_command_count}/dia</span>
+          </span>
+          {stats.circuit_breaker_watermark_hit && (
+            <span className="flex items-center gap-1 px-2 py-0.5 rounded-md bg-yellow-500/10 border border-yellow-500/20 text-yellow-400 text-[11px] font-medium">
+              <AlertTriangle size={11} />
+              Volume WPP &gt;50/dia — reavaliar Circuit Breaker (ver ADR)
+            </span>
+          )}
+        </div>
+      )}
 
       {/* Filters */}
       <div className="flex items-center gap-2 mb-4 flex-wrap">
@@ -496,15 +600,21 @@ export default function Triggers() {
                       <th className="text-left p-3 font-medium">Event</th>
                       <th className="text-left p-3 font-medium">Duration</th>
                       <th className="text-left p-3 font-medium">Time</th>
+                      <th className="text-center p-3 font-medium">Actions</th>
                     </tr>
                   </thead>
                   <tbody>
                     {executions.map(ex => (
                       <tr key={ex.id} className="border-t border-[#21262d]/50 hover:bg-white/[0.02]">
                         <td className="p-3">
-                          <span className={`inline-block px-2 py-0.5 rounded text-[10px] font-medium ${STATUS_COLORS[ex.status] || ''}`}>
-                            {ex.status}
-                          </span>
+                          <div className="flex flex-col gap-0.5">
+                            <span className={`inline-block px-2 py-0.5 rounded text-[10px] font-medium ${STATUS_COLORS[ex.status] || ''}`}>
+                              {ex.status}
+                            </span>
+                            {ex.error_category && (
+                              <span className="text-[9px] text-[#667085]">{ex.error_category}</span>
+                            )}
+                          </div>
                         </td>
                         <td className="p-3 text-[#667085] text-xs max-w-[200px] truncate">
                           {(ex.event_data as Record<string, unknown>)?._test ? 'test' : (String((ex.event_data as Record<string, unknown>)?.event_type || '--'))}
@@ -516,11 +626,66 @@ export default function Triggers() {
                         <td className="p-3 text-[#667085] text-xs">
                           {ex.started_at ? relativeTime(ex.started_at) : '--'}
                         </td>
+                        <td className="p-3 text-center">
+                          {/* Replay button — only for failed_retryable (Step 5 PR-3) */}
+                          {ex.status === 'failed_retryable' && (
+                            <button
+                              onClick={() => openReplayPreview(ex)}
+                              className="inline-flex items-center gap-1 px-2 py-1 rounded text-[10px] font-medium bg-orange-500/10 border border-orange-500/20 text-orange-400 hover:bg-orange-500/20 transition-colors"
+                              title="Replay esta execução"
+                            >
+                              <RotateCcw size={10} />
+                              Replay
+                            </button>
+                          )}
+                        </td>
                       </tr>
                     ))}
                   </tbody>
                 </table>
               )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Replay Confirmation Modal (Step 5 — PR-3) */}
+      {replayPreview && (
+        <div className="fixed inset-0 bg-black/60 z-[60] flex items-center justify-center p-4" onClick={() => setReplayPreview(null)}>
+          <div className="bg-[#161b22] border border-[#21262d] rounded-xl w-full max-w-md" onClick={e => e.stopPropagation()}>
+            <div className="flex items-center justify-between px-6 py-4 border-b border-[#21262d]">
+              <h2 className="text-lg font-semibold text-[#e6edf3]">Confirmar replay #{replayPreview.execId}</h2>
+              <button onClick={() => setReplayPreview(null)} className="p-1 rounded-lg hover:bg-white/5 text-[#667085] hover:text-[#e6edf3]"><X size={18} /></button>
+            </div>
+            <div className="p-6 space-y-4">
+              <p className="text-[#667085] text-xs">
+                Isso irá refazer a chamada original. Se a execução anterior já chegou a executar parcialmente, o sistema dedupa silenciosamente.
+              </p>
+              <div className="rounded-lg bg-[#0d1117] border border-[#21262d] p-4 space-y-2 text-xs">
+                <div className="flex gap-2">
+                  <span className="text-[#667085] w-24 shrink-0">Destinatário</span>
+                  <span className="text-[#e6edf3] font-mono break-all">{replayPreview.recipient}</span>
+                </div>
+                <div className="flex gap-2">
+                  <span className="text-[#667085] w-24 shrink-0">Comando</span>
+                  <span className="text-[#e6edf3] font-mono break-all">{replayPreview.command.slice(0, 200)}</span>
+                </div>
+                <div className="flex gap-2">
+                  <span className="text-[#667085] w-24 shrink-0">Timestamp</span>
+                  <span className="text-[#e6edf3]">{replayPreview.timestamp}</span>
+                </div>
+              </div>
+            </div>
+            <div className="flex items-center justify-end gap-3 px-6 py-4 border-t border-[#21262d]">
+              <button onClick={() => setReplayPreview(null)}
+                className="px-4 py-2 rounded-lg border border-[#21262d] text-[#667085] hover:text-[#e6edf3] hover:border-[#344054] transition-colors text-sm">
+                Cancelar
+              </button>
+              <button onClick={confirmReplay} disabled={replaying}
+                className="flex items-center gap-2 px-4 py-2 rounded-lg bg-orange-500/10 border border-orange-500/20 text-orange-400 hover:bg-orange-500/20 transition-colors text-sm font-medium disabled:opacity-50 disabled:cursor-not-allowed">
+                <RotateCcw size={14} />
+                {replaying ? 'Iniciando...' : 'Confirmar replay'}
+              </button>
             </div>
           </div>
         </div>
