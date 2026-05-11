@@ -357,10 +357,12 @@ def webhook_receiver(trigger_id):
     # Other sources (GitHub, Stripe, Linear): no key → idem_key=None → check is skipped.
     idem_key = None
     if isinstance(event_data, dict):
+        _data = event_data.get("data") or {}
         idem_key = (
             event_data.get("idempotency_key")
             or event_data.get("messageId")
-            or (event_data.get("data") or {}).get("messageId")
+            or _data.get("idempotency_key")
+            or _data.get("messageId")
             or None
         )
 
