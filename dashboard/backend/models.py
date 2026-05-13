@@ -342,7 +342,7 @@ class TriggerExecution(db.Model):
     # WhatsApp retry pattern (PR-1: migration 2026-05-11)
     # rollback: DROP indices uq_trigger_idem + ix_trigger_executions_idem_key; columns are nullable, ignored by old code
     idempotency_key = db.Column(db.String(255), nullable=True, index=True)  # messageId WPP or other source dedup key
-    error_category = db.Column(db.String(20), nullable=True)  # transient | permanent | validation | unknown
+    error_category = db.Column(db.String(20), nullable=True)  # transient | permanent (ver _classify_error em routes/triggers.py)
     last_replay_at = db.Column(db.DateTime, nullable=True)  # rate-limit: 60s between replays of the same execution
 
     @property

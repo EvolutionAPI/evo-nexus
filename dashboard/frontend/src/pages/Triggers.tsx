@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import { useToast } from '../components/Toast'
 import { useConfirm } from '../components/ConfirmDialog'
 import { Plus, Pencil, Trash2, X, Play, Copy, RefreshCw, KeyRound, RotateCcw, AlertTriangle } from 'lucide-react'
-import { api } from '../lib/api'
+import { api, ApiError } from '../lib/api'
 import { useAuth } from '../context/AuthContext'
 
 interface TriggerItem {
@@ -272,10 +272,14 @@ export default function Triggers() {
         setExecutions(data.executions || [])
       }
     } catch (e: unknown) {
-      const msg = e instanceof Error ? e.message : String(e)
-      if (msg.includes('rate_limited') || msg.includes('429')) {
+      // Detecção estruturada: ApiError carrega status numérico + code do
+      // backend. Evita fragilidade de parsear o `.message` (Sourcery #80).
+      const isRateLimit =
+        e instanceof ApiError && (e.status === 429 || e.code === 'rate_limited')
+      if (isRateLimit) {
         toast.error('Rate limit: aguarde 60s antes de fazer replay novamente')
       } else {
+        const msg = e instanceof Error ? e.message : String(e)
         toast.error('Erro ao fazer replay', msg)
       }
     }

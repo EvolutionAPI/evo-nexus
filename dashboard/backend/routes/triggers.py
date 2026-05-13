@@ -11,8 +11,10 @@ import sys
 import threading
 import time
 from pathlib import Path
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
+from typing import Literal
 from flask import Blueprint, jsonify, request, current_app
+from sqlalchemy import bindparam
 from flask_login import current_user
 from models import db, Trigger, TriggerExecution, has_permission, audit
 from sqlalchemy.exc import IntegrityError
@@ -42,11 +44,21 @@ _TRANSIENT_MARKERS = (
 )
 
 
-def _classify_error(err_msg: str, exc: Exception | None = None) -> str:
-    """Return 'transient' or 'permanent' based on the exception and error text.
+ErrorCategory = Literal["transient", "permanent"]
+
+
+def _classify_error(err_msg: str, exc: Exception | None = None) -> ErrorCategory:
+    """Classify a failed execution as transient or permanent.
 
     transient  → worth retrying (HTTP 5xx, network, timeout)
     permanent  → deterministic failure, replay only on operator decision
+
+    NOTE: o comentário em `TriggerExecution.error_category` (models.py)
+    historicamente listava 4 valores ("transient | permanent | validation
+    | unknown"). Na prática, o classificador SEMPRE retorna um dos dois
+    valores acima. Consumidores devem assumir só esses dois — qualquer
+    valor extra no DB vem de migração antiga e deve ser tratado como
+    `permanent` (default seguro). Sourcery #80 alertou o desalinhamento.
     """
     if isinstance(exc, subprocess.TimeoutExpired):
         return "transient"
@@ -386,11 +398,26 @@ def webhook_receiver(trigger_id):
     db.session.add(execution)
     try:
         db.session.commit()
-    except IntegrityError:
+    except IntegrityError as exc:
+        # Restringe o catch à violação do índice de idempotência
+        # (uq_trigger_idem). Qualquer outro IntegrityError (NOT NULL, FK,
+        # outros uniques) é um problema real e precisa propagar — caso
+        # contrário viraria 200 OK silencioso e mascararia bug de schema.
+        db.session.rollback()
+        err_text = str(getattr(exc, "orig", exc)).lower()
+        is_idem_violation = (
+            idem_key is not None
+            and ("uq_trigger_idem" in err_text or "idempotency_key" in err_text)
+        )
+        if not is_idem_violation:
+            current_app.logger.error(
+                f"evt=integrity_error_unexpected trigger_id={trigger.id} "
+                f"key={idem_key} err={err_text!r}"
+            )
+            raise
         # Race condition: two simultaneous POSTs with same idempotency_key;
         # the DB partial unique index rejected the second INSERT.
         # Silent dedup — return 200 OK (F6) without re-executing.
-        db.session.rollback()
         current_app.logger.info(
             f"evt=idempotent_replay_race trigger_id={trigger.id} key={idem_key}"
         )
@@ -473,9 +500,22 @@ def replay_execution(exec_id: int):
 
     try:
         db.session.commit()
-    except IntegrityError:
-        # idempotency_key already has a successful execution — silent ok
+    except IntegrityError as exc:
+        # Mesma proteção do webhook_receiver: só absorve a violação se for
+        # do índice de idempotência. Outros IntegrityError (NOT NULL, FK,
+        # outros uniques) precisam propagar para não mascarar bugs reais.
         db.session.rollback()
+        err_text = str(getattr(exc, "orig", exc)).lower()
+        is_idem_violation = (
+            ex.idempotency_key is not None
+            and ("uq_trigger_idem" in err_text or "idempotency_key" in err_text)
+        )
+        if not is_idem_violation:
+            current_app.logger.error(
+                f"evt=integrity_error_unexpected_replay exec_id={ex.id} "
+                f"key={ex.idempotency_key} err={err_text!r}"
+            )
+            raise
         return jsonify({"status": "ok", "note": "idempotent_skip"}), 200
 
     new_execution_id = new_ex.id
@@ -515,17 +555,20 @@ def trigger_stats():
     except (TypeError, ValueError):
         days = 1
 
-    # Use raw SQL via SQLAlchemy text for aggregate queries (no ORM overhead)
+    # Use raw SQL via SQLAlchemy text for aggregate queries (no ORM overhead).
+    # Todos os params abaixo são bindados (Sourcery #80 — evita interpolação
+    # mesmo com inputs hoje "seguros", garante robustez se a lógica mudar).
     from sqlalchemy import text as _text
 
-    since_clause = f"datetime('now', '-{days} days')"
+    cutoff = datetime.now(timezone.utc) - timedelta(days=days)
 
     # 1. Total executions + by_status breakdown
     rows = db.session.execute(
         _text(
-            f"SELECT status, COUNT(*) as cnt FROM trigger_executions "
-            f"WHERE started_at >= {since_clause} GROUP BY status"
-        )
+            "SELECT status, COUNT(*) as cnt FROM trigger_executions "
+            "WHERE started_at >= :cutoff GROUP BY status"
+        ),
+        {"cutoff": cutoff},
     ).fetchall()
     by_status: dict = {}
     total_executions = 0
@@ -541,9 +584,10 @@ def trigger_stats():
     #    (exact log parsing is fragile; replayed status is precise enough for watermark)
     idempotent_replays = db.session.execute(
         _text(
-            f"SELECT COUNT(*) FROM trigger_executions "
-            f"WHERE status = 'replayed' AND started_at >= {since_clause}"
-        )
+            "SELECT COUNT(*) FROM trigger_executions "
+            "WHERE status = 'replayed' AND started_at >= :cutoff"
+        ),
+        {"cutoff": cutoff},
     ).scalar() or 0
 
     # 4. WPP command count: triggers whose source = 'whatsapp' OR slug contains 'wpp'
@@ -553,18 +597,19 @@ def trigger_stats():
             "SELECT id FROM triggers WHERE source = 'whatsapp' OR slug LIKE 'wpp%' OR name LIKE 'wpp%' OR name LIKE 'WhatsApp%'"
         )
     ).fetchall()
-    wpp_ids = tuple(r[0] for r in wpp_trigger_ids)
+    wpp_ids = [r[0] for r in wpp_trigger_ids]
 
     if wpp_ids:
-        # Build IN clause using string interpolation (IDs are integers — safe)
-        id_list = ",".join(str(i) for i in wpp_ids)
+        # IN clause via expanding bindparam — SQLAlchemy expande pra (:id_1, :id_2, ...)
+        # e bindando cada ID. Mais seguro e legível que interpolar id_list,
+        # mesmo sendo ints (defesa contra regressões futuras se a fonte mudar).
         try:
+            stmt = _text(
+                "SELECT COUNT(*) FROM trigger_executions "
+                "WHERE trigger_id IN :wpp_ids AND started_at >= :cutoff"
+            ).bindparams(bindparam("wpp_ids", expanding=True))
             wpp_command_count = db.session.execute(
-                _text(
-                    f"SELECT COUNT(*) FROM trigger_executions "
-                    f"WHERE trigger_id IN ({id_list}) "
-                    f"AND started_at >= {since_clause}"
-                )
+                stmt, {"wpp_ids": wpp_ids, "cutoff": cutoff}
             ).scalar() or 0
         except Exception:
             wpp_command_count = 0
@@ -579,10 +624,11 @@ def trigger_stats():
     #    (Step 3 backoff logs "attempts" in the summary)
     retries_observed = db.session.execute(
         _text(
-            f"SELECT COUNT(*) FROM trigger_executions "
-            f"WHERE (result_summary LIKE '%\"attempts\"%' OR error LIKE '%attempts%') "
-            f"AND started_at >= {since_clause}"
-        )
+            "SELECT COUNT(*) FROM trigger_executions "
+            "WHERE (result_summary LIKE '%\"attempts\"%' OR error LIKE '%attempts%') "
+            "AND started_at >= :cutoff"
+        ),
+        {"cutoff": cutoff},
     ).scalar() or 0
 
     # 7. Watermark check
