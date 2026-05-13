@@ -634,8 +634,22 @@ with app.app_context():
             "ON trigger_executions (idempotency_key)"
         )
         _conn.commit()
-    except Exception:
-        pass
+    except Exception as exc:
+        # Não silenciar: se este índice não for criado, a dedup cai pra
+        # caminho app-only (mais lento e com janela de race). Logar com a
+        # versão do SQLite ajuda a diagnosticar incompatibilidade.
+        import logging
+        import sqlite3 as _sqlite3
+        _lib_ver = getattr(_sqlite3, "sqlite_version", None)
+        try:
+            _rt_ver = _cur.execute("SELECT sqlite_version()").fetchone()[0]
+        except Exception:
+            _rt_ver = None
+        logging.getLogger(__name__).warning(
+            "Failed to create ix_trigger_executions_idem_key — falling back "
+            "to app-level idempotency only. sqlite_lib=%r sqlite_runtime=%r err=%r",
+            _lib_ver, _rt_ver, exc,
+        )
     # Partial unique index: enforces (trigger_id, idempotency_key) uniqueness only when key IS NOT NULL.
     # SQLite >= 3.8 supports partial indices natively; our runtime is 3.51 (confirmed).
     # This is the DB-level guard against race-condition duplicates (Step 2 handles app-level dedup).
@@ -646,8 +660,23 @@ with app.app_context():
             "WHERE idempotency_key IS NOT NULL"
         )
         _conn.commit()
-    except Exception:
-        pass
+    except Exception as exc:
+        # Mesmo tratamento: se o partial unique não for criado, perdemos a
+        # garantia DB-level contra duplicate race — webhook_receiver cai
+        # 100% no caminho app-level (já existe, mas tem janela TOCTOU).
+        import logging
+        import sqlite3 as _sqlite3
+        _lib_ver = getattr(_sqlite3, "sqlite_version", None)
+        try:
+            _rt_ver = _cur.execute("SELECT sqlite_version()").fetchone()[0]
+        except Exception:
+            _rt_ver = None
+        logging.getLogger(__name__).warning(
+            "Failed to create uq_trigger_idem partial unique — DB-level race "
+            "guard inactive, relying on app-level dedup only. "
+            "sqlite_lib=%r sqlite_runtime=%r err=%r",
+            _lib_ver, _rt_ver, exc,
+        )
     # --- End WhatsApp retry pattern migration ---
 
     _conn.close()

@@ -352,11 +352,26 @@ def webhook_receiver(trigger_id):
     db.session.add(execution)
     try:
         db.session.commit()
-    except IntegrityError:
+    except IntegrityError as exc:
+        # Restringe o catch à violação do índice de idempotência
+        # (uq_trigger_idem). Qualquer outro IntegrityError (NOT NULL, FK,
+        # outros uniques) é um problema real e precisa propagar — caso
+        # contrário viraria 200 OK silencioso e mascararia bug de schema.
+        db.session.rollback()
+        err_text = str(getattr(exc, "orig", exc)).lower()
+        is_idem_violation = (
+            idem_key is not None
+            and ("uq_trigger_idem" in err_text or "idempotency_key" in err_text)
+        )
+        if not is_idem_violation:
+            current_app.logger.error(
+                f"evt=integrity_error_unexpected trigger_id={trigger.id} "
+                f"key={idem_key} err={err_text!r}"
+            )
+            raise
         # Race condition: two simultaneous POSTs with same idempotency_key;
         # the DB partial unique index rejected the second INSERT.
         # Silent dedup — return 200 OK (F6) without re-executing.
-        db.session.rollback()
         current_app.logger.info(
             f"evt=idempotent_replay_race trigger_id={trigger.id} key={idem_key}"
         )
