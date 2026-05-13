@@ -47,6 +47,37 @@ def get_config():
     return url.rstrip("/"), key
 
 
+def _backoff_retry_or_log_final(attempt, max_attempts, base_delay, max_delay, extras):
+    """Sleep with exponential backoff + jitter, ou loga falha final.
+
+    Centraliza a lógica idêntica que estava duplicada nos branches 5xx
+    (HTTPError) e URLError/socket.timeout do retry loop. `extras` carrega
+    as chaves variantes do log (`http_status` ou `error`).
+    """
+    if attempt < max_attempts - 1:
+        delay = min(base_delay * (2 ** attempt) + random.uniform(0, 0.5), max_delay)
+        print(
+            json.dumps({
+                "evt": "api_request_retry",
+                "attempt": attempt + 1,
+                "max_attempts": max_attempts,
+                **extras,
+                "delay_s": round(delay, 2),
+            })
+        )
+        time.sleep(delay)
+    else:
+        print(
+            json.dumps({
+                "evt": "api_request_failed",
+                "attempt": attempt + 1,
+                "max_attempts": max_attempts,
+                **extras,
+                "category": "transient",
+            })
+        )
+
+
 def _retry_http_call_client(do_call, max_attempts=3, base_delay=2.0, max_delay=8.0):
     """Exponential backoff + jitter for Evolution Go API calls.
 
@@ -56,7 +87,11 @@ def _retry_http_call_client(do_call, max_attempts=3, base_delay=2.0, max_delay=8
     Returns the result of do_call() on success.
     Raises the last exception after max_attempts are exhausted.
     Raises immediately on HTTP 4xx (no retry).
+    Raises ValueError if max_attempts < 1 (caller error).
     """
+    if max_attempts < 1:
+        raise ValueError("max_attempts must be >= 1")
+
     last_exc = None
     for attempt in range(max_attempts):
         try:
@@ -66,52 +101,16 @@ def _retry_http_call_client(do_call, max_attempts=3, base_delay=2.0, max_delay=8
                 # 4xx — deterministic, raise immediately (caller decides sys.exit vs raise)
                 raise
             last_exc = e
-            if attempt < max_attempts - 1:
-                delay = min(base_delay ** attempt + random.uniform(0, 0.5), max_delay)
-                print(
-                    json.dumps({
-                        "evt": "api_request_retry",
-                        "attempt": attempt + 1,
-                        "max_attempts": max_attempts,
-                        "http_status": e.code,
-                        "delay_s": round(delay, 2),
-                    })
-                )
-                time.sleep(delay)
-            else:
-                print(
-                    json.dumps({
-                        "evt": "api_request_failed",
-                        "attempt": attempt + 1,
-                        "max_attempts": max_attempts,
-                        "http_status": e.code,
-                        "category": "transient",
-                    })
-                )
+            _backoff_retry_or_log_final(
+                attempt, max_attempts, base_delay, max_delay,
+                {"http_status": e.code},
+            )
         except (urllib.error.URLError, socket.timeout) as e:
             last_exc = e
-            if attempt < max_attempts - 1:
-                delay = min(base_delay ** attempt + random.uniform(0, 0.5), max_delay)
-                print(
-                    json.dumps({
-                        "evt": "api_request_retry",
-                        "attempt": attempt + 1,
-                        "max_attempts": max_attempts,
-                        "error": str(e),
-                        "delay_s": round(delay, 2),
-                    })
-                )
-                time.sleep(delay)
-            else:
-                print(
-                    json.dumps({
-                        "evt": "api_request_failed",
-                        "attempt": attempt + 1,
-                        "max_attempts": max_attempts,
-                        "error": str(e),
-                        "category": "transient",
-                    })
-                )
+            _backoff_retry_or_log_final(
+                attempt, max_attempts, base_delay, max_delay,
+                {"error": str(e)},
+            )
     raise last_exc
 
 

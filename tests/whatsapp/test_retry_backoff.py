@@ -140,11 +140,15 @@ class TestApiRequestRetry(unittest.TestCase):
 
         with self._patch_get_config(_client):
             with patch("urllib.request.urlopen", side_effect=_mock_urlopen):
-                with patch.object(_client.time, "sleep"):
+                with patch.object(_client.time, "sleep") as mock_sleep:
                     result = _client.api_request("GET", "/instance/status")
 
         self.assertEqual(result, {"status": "active"})
         self.assertEqual(call_count, 3)
+        # Sleep deve ser chamado exatamente 2x: após attempts 1 e 2 (5xx);
+        # NÃO deve ser chamado após attempt 3 (success). Garante que o
+        # backoff só roda em falhas que serão retriadas.
+        self.assertEqual(mock_sleep.call_count, 2)
 
 
 
