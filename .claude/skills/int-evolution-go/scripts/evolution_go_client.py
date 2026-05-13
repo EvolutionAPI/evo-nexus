@@ -6,7 +6,11 @@ No third-party SDK dependency.
 import argparse
 import json
 import os
+import random
+import socket
 import sys
+import time
+import urllib.error
 import urllib.parse
 import urllib.request
 from pathlib import Path
@@ -43,38 +47,103 @@ def get_config():
     return url.rstrip("/"), key
 
 
+def _backoff_retry_or_log_final(attempt, max_attempts, base_delay, max_delay, extras):
+    """Sleep with exponential backoff + jitter, ou loga falha final.
+
+    Centraliza a lógica idêntica que estava duplicada nos branches 5xx
+    (HTTPError) e URLError/socket.timeout do retry loop. `extras` carrega
+    as chaves variantes do log (`http_status` ou `error`).
+    """
+    if attempt < max_attempts - 1:
+        delay = min(base_delay * (2 ** attempt) + random.uniform(0, 0.5), max_delay)
+        print(
+            json.dumps({
+                "evt": "api_request_retry",
+                "attempt": attempt + 1,
+                "max_attempts": max_attempts,
+                **extras,
+                "delay_s": round(delay, 2),
+            })
+        )
+        time.sleep(delay)
+    else:
+        print(
+            json.dumps({
+                "evt": "api_request_failed",
+                "attempt": attempt + 1,
+                "max_attempts": max_attempts,
+                **extras,
+                "category": "transient",
+            })
+        )
+
+
+def _retry_http_call_client(do_call, max_attempts=3, base_delay=2.0, max_delay=8.0):
+    """Exponential backoff + jitter for Evolution Go API calls.
+
+    Retries on HTTP 5xx, urllib.error.URLError, and socket.timeout (transient).
+    NEVER retries on HTTP 4xx (deterministic client errors).
+
+    Returns the result of do_call() on success.
+    Raises the last exception after max_attempts are exhausted.
+    Raises immediately on HTTP 4xx (no retry).
+    Raises ValueError if max_attempts < 1 (caller error).
+    """
+    if max_attempts < 1:
+        raise ValueError("max_attempts must be >= 1")
+
+    last_exc = None
+    for attempt in range(max_attempts):
+        try:
+            return do_call()
+        except urllib.error.HTTPError as e:
+            if e.code < 500:
+                # 4xx — deterministic, raise immediately (caller decides sys.exit vs raise)
+                raise
+            last_exc = e
+            _backoff_retry_or_log_final(
+                attempt, max_attempts, base_delay, max_delay,
+                {"http_status": e.code},
+            )
+        except (urllib.error.URLError, socket.timeout) as e:
+            last_exc = e
+            _backoff_retry_or_log_final(
+                attempt, max_attempts, base_delay, max_delay,
+                {"error": str(e)},
+            )
+    raise last_exc
+
+
 def api_request(method, path, data=None):
-    """Make an HTTP request to the Evolution Go API."""
+    """Make an HTTP request to the Evolution Go API.
+
+    Applies exponential backoff + jitter on HTTP 5xx / network errors (up to 3 attempts).
+    On HTTP 4xx: raises urllib.error.HTTPError immediately (no retry, deterministic error).
+    On persistent failure after retries: raises the last exception instead of sys.exit(1),
+    allowing library callers to handle it; CLI __main__ catches and sys.exit(1) as before.
+    """
     base_url, api_key = get_config()
     url = f"{base_url}{path}"
 
     body = json.dumps(data).encode("utf-8") if data else None
-    req = urllib.request.Request(
-        url,
-        data=body,
-        method=method,
-        headers={
-            "apikey": api_key,
-            "Content-Type": "application/json",
-        },
-    )
 
-    try:
+    def _do_call():
+        req = urllib.request.Request(
+            url,
+            data=body,
+            method=method,
+            headers={
+                "apikey": api_key,
+                "Content-Type": "application/json",
+            },
+        )
         with urllib.request.urlopen(req) as resp:
             raw = resp.read()
             if raw:
                 return json.loads(raw)
             return {"message": "success"}
-    except urllib.error.HTTPError as e:
-        try:
-            error_body = json.loads(e.read())
-        except Exception:
-            error_body = {"error": str(e)}
-        print(json.dumps({"error": f"HTTP {e.code}", "details": error_body}, indent=2))
-        sys.exit(1)
-    except urllib.error.URLError as e:
-        print(json.dumps({"error": f"Connection failed: {e.reason}"}))
-        sys.exit(1)
+
+    return _retry_http_call_client(_do_call)
 
 
 def to_jid(number):
@@ -523,10 +592,21 @@ def main():
     }
 
     handler = commands.get(args.command)
-    if handler:
-        handler(args)
-    else:
+    if not handler:
         print(json.dumps({"error": f"Unknown command: {args.command}"}))
+        sys.exit(1)
+
+    try:
+        handler(args)
+    except urllib.error.HTTPError as e:
+        try:
+            error_body = json.loads(e.read())
+        except Exception:
+            error_body = {"error": str(e)}
+        print(json.dumps({"error": f"HTTP {e.code}", "details": error_body}, indent=2))
+        sys.exit(1)
+    except (urllib.error.URLError, socket.timeout) as e:
+        print(json.dumps({"error": f"Connection failed: {e}"}))
         sys.exit(1)
 
 

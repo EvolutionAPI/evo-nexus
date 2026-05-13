@@ -12,9 +12,10 @@ import threading
 import time
 from pathlib import Path
 from datetime import datetime, timezone
-from flask import Blueprint, jsonify, request
+from flask import Blueprint, jsonify, request, current_app
 from flask_login import current_user
 from models import db, Trigger, TriggerExecution, has_permission, audit
+from sqlalchemy.exc import IntegrityError
 
 bp = Blueprint("triggers", __name__)
 
@@ -245,7 +246,6 @@ def test_trigger(trigger_id):
     trigger_id_int = trigger.id
     trigger_name = trigger.name
 
-    from flask import current_app
     app = current_app._get_current_object()
 
     def _run():
@@ -318,14 +318,49 @@ def webhook_receiver(trigger_id):
     if not _matches_filter(event_data, trigger.event_filter_dict):
         return jsonify({"status": "ok"}), 200
 
+    # --- WhatsApp retry pattern: idempotency key extraction (PR-1 2026-05-11) ---
+    # WPP channel: N8N forwards messageId as idempotency_key or data.messageId.
+    # Other sources (GitHub, Stripe, Linear): no key → idem_key=None → check is skipped.
+    idem_key = None
+    if isinstance(event_data, dict):
+        idem_key = (
+            event_data.get("idempotency_key")
+            or event_data.get("messageId")
+            or (event_data.get("data") or {}).get("messageId")
+            or None
+        )
+
+    # Silent dedup (F6 pattern): second POST with same key returns 200 OK without re-executing.
+    if idem_key:
+        existing = TriggerExecution.query.filter_by(
+            trigger_id=trigger.id, idempotency_key=idem_key
+        ).first()
+        if existing:
+            current_app.logger.info(
+                f"evt=idempotent_replay trigger_id={trigger.id} key={idem_key} existing_exec_id={existing.id}"
+            )
+            return jsonify({"status": "ok"}), 200
+    # --- End idempotency dedup ---
+
     # Create execution and run async
     execution = TriggerExecution(
         trigger_id=trigger.id,
         event_data=json.dumps(event_data),
         status="pending",
+        idempotency_key=idem_key,
     )
     db.session.add(execution)
-    db.session.commit()
+    try:
+        db.session.commit()
+    except IntegrityError:
+        # Race condition: two simultaneous POSTs with same idempotency_key;
+        # the DB partial unique index rejected the second INSERT.
+        # Silent dedup — return 200 OK (F6) without re-executing.
+        db.session.rollback()
+        current_app.logger.info(
+            f"evt=idempotent_replay_race trigger_id={trigger.id} key={idem_key}"
+        )
+        return jsonify({"status": "ok"}), 200
 
     # Capture IDs BEFORE handing off to the worker thread (see test_trigger
     # for the same DetachedInstanceError issue) — accessing ``execution.id``
@@ -333,7 +368,6 @@ def webhook_receiver(trigger_id):
     execution_id = execution.id
     trigger_id_int = trigger.id
 
-    from flask import current_app
     app = current_app._get_current_object()
 
     def _run():
