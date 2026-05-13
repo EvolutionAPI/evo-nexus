@@ -333,12 +333,20 @@ class TriggerExecution(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     trigger_id = db.Column(db.Integer, db.ForeignKey("triggers.id", ondelete="CASCADE"), nullable=False)
     event_data = db.Column(db.Text, nullable=True, default="{}")  # JSON payload received
-    status = db.Column(db.String(20), nullable=False, default="pending")  # pending, running, completed, failed
+    status = db.Column(db.String(20), nullable=False, default="pending")  # pending, running, completed, failed, failed_retryable
     result_summary = db.Column(db.Text, nullable=True)
     error = db.Column(db.Text, nullable=True)
     duration_seconds = db.Column(db.Float, nullable=True)
     started_at = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc))
     completed_at = db.Column(db.DateTime, nullable=True)
+    # WhatsApp retry pattern (PR-1: migration 2026-05-11)
+    # rollback: DROP indices uq_trigger_idem + ix_trigger_executions_idem_key; columns are nullable, ignored by old code
+    # Note: index intentionally NOT declared here — the raw-SQL migration in app.py
+    # creates `ix_trigger_executions_idem_key` (basic) + `uq_trigger_idem` (partial unique).
+    # Declaring `index=True` here would create a third redundant index (Sourcery #78).
+    idempotency_key = db.Column(db.String(255), nullable=True)  # messageId WPP or other source dedup key
+    error_category = db.Column(db.String(20), nullable=True)  # transient | permanent | validation | unknown
+    last_replay_at = db.Column(db.DateTime, nullable=True)  # rate-limit: 60s between replays of the same execution
 
     @property
     def event_data_dict(self) -> dict:
@@ -358,6 +366,9 @@ class TriggerExecution(db.Model):
             "duration_seconds": self.duration_seconds,
             "started_at": self.started_at.strftime("%Y-%m-%dT%H:%M:%S.%fZ") if self.started_at else None,
             "completed_at": self.completed_at.strftime("%Y-%m-%dT%H:%M:%S.%fZ") if self.completed_at else None,
+            "idempotency_key": self.idempotency_key,
+            "error_category": self.error_category,
+            "last_replay_at": self.last_replay_at.strftime("%Y-%m-%dT%H:%M:%S.%fZ") if self.last_replay_at else None,
         }
 
 
