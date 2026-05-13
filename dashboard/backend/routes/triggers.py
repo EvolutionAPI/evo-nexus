@@ -11,10 +11,13 @@ import sys
 import threading
 import time
 from pathlib import Path
-from datetime import datetime, timezone
-from flask import Blueprint, jsonify, request
+from datetime import datetime, timedelta, timezone
+from typing import Literal
+from flask import Blueprint, jsonify, request, current_app
+from sqlalchemy import bindparam
 from flask_login import current_user
 from models import db, Trigger, TriggerExecution, has_permission, audit
+from sqlalchemy.exc import IntegrityError
 
 bp = Blueprint("triggers", __name__)
 
@@ -22,6 +25,50 @@ WORKSPACE = Path(__file__).resolve().parent.parent.parent.parent
 VALID_TYPES = ("webhook", "event")
 VALID_SOURCES = ("github", "linear", "telegram", "discord", "stripe", "custom")
 VALID_ACTION_TYPES = ("skill", "prompt", "script")
+
+# --- WhatsApp retry pattern: DLQ error classification (PR-3 2026-05-11) ---
+# Markers that indicate a transient (retriable) failure vs a permanent one.
+# Permanent errors are deterministic (bad config, missing script, etc.)
+# and must NOT be retried without human intervention.
+_TRANSIENT_MARKERS = (
+    "HTTP 5",           # HTTP 5xx from Evolution Go or any subprocess
+    "timed out",
+    "timeout",
+    "Timeout",
+    "Connection refused",
+    "Connection reset",
+    "Network is unreachable",
+    "URLError",
+    "RemoteDisconnected",
+    "BrokenPipeError",
+)
+
+
+ErrorCategory = Literal["transient", "permanent"]
+
+
+def _classify_error(err_msg: str, exc: Exception | None = None) -> ErrorCategory:
+    """Classify a failed execution as transient or permanent.
+
+    transient  → worth retrying (HTTP 5xx, network, timeout)
+    permanent  → deterministic failure, replay only on operator decision
+
+    NOTE: o comentário em `TriggerExecution.error_category` (models.py)
+    historicamente listava 4 valores ("transient | permanent | validation
+    | unknown"). Na prática, o classificador SEMPRE retorna um dos dois
+    valores acima. Consumidores devem assumir só esses dois — qualquer
+    valor extra no DB vem de migração antiga e deve ser tratado como
+    `permanent` (default seguro). Sourcery #80 alertou o desalinhamento.
+    """
+    if isinstance(exc, subprocess.TimeoutExpired):
+        return "transient"
+    if isinstance(exc, (ValueError, FileNotFoundError, KeyError, TypeError, AttributeError)):
+        return "permanent"
+    msg = err_msg or ""
+    if any(m in msg for m in _TRANSIENT_MARKERS):
+        return "transient"
+    return "permanent"
+# --- End DLQ classification ---
 
 # Cache python command at module load time (F3)
 _PYTHON_CMD = shutil.which("uv")
@@ -245,7 +292,6 @@ def test_trigger(trigger_id):
     trigger_id_int = trigger.id
     trigger_name = trigger.name
 
-    from flask import current_app
     app = current_app._get_current_object()
 
     def _run():
@@ -318,14 +364,64 @@ def webhook_receiver(trigger_id):
     if not _matches_filter(event_data, trigger.event_filter_dict):
         return jsonify({"status": "ok"}), 200
 
+    # --- WhatsApp retry pattern: idempotency key extraction (PR-1 2026-05-11) ---
+    # WPP channel: N8N forwards messageId as idempotency_key or data.messageId.
+    # Other sources (GitHub, Stripe, Linear): no key → idem_key=None → check is skipped.
+    idem_key = None
+    if isinstance(event_data, dict):
+        idem_key = (
+            event_data.get("idempotency_key")
+            or event_data.get("messageId")
+            or (event_data.get("data") or {}).get("messageId")
+            or None
+        )
+
+    # Silent dedup (F6 pattern): second POST with same key returns 200 OK without re-executing.
+    if idem_key:
+        existing = TriggerExecution.query.filter_by(
+            trigger_id=trigger.id, idempotency_key=idem_key
+        ).first()
+        if existing:
+            current_app.logger.info(
+                f"evt=idempotent_replay trigger_id={trigger.id} key={idem_key} existing_exec_id={existing.id}"
+            )
+            return jsonify({"status": "ok"}), 200
+    # --- End idempotency dedup ---
+
     # Create execution and run async
     execution = TriggerExecution(
         trigger_id=trigger.id,
         event_data=json.dumps(event_data),
         status="pending",
+        idempotency_key=idem_key,
     )
     db.session.add(execution)
-    db.session.commit()
+    try:
+        db.session.commit()
+    except IntegrityError as exc:
+        # Restringe o catch à violação do índice de idempotência
+        # (uq_trigger_idem). Qualquer outro IntegrityError (NOT NULL, FK,
+        # outros uniques) é um problema real e precisa propagar — caso
+        # contrário viraria 200 OK silencioso e mascararia bug de schema.
+        db.session.rollback()
+        err_text = str(getattr(exc, "orig", exc)).lower()
+        is_idem_violation = (
+            idem_key is not None
+            and ("uq_trigger_idem" in err_text or "idempotency_key" in err_text)
+        )
+        if not is_idem_violation:
+            current_app.logger.error(
+                f"evt=integrity_error_unexpected trigger_id={trigger.id} "
+                f"key={idem_key} err={err_text!r}"
+            )
+            raise
+        # Race condition: two simultaneous POSTs with same idempotency_key;
+        # the DB partial unique index rejected the second INSERT.
+        # Silent dedup — return 200 OK (F6) without re-executing.
+        current_app.logger.info(
+            f"evt=idempotent_replay_race trigger_id={trigger.id} key={idem_key}"
+        )
+        return jsonify({"status": "ok"}), 200
 
     # Capture IDs BEFORE handing off to the worker thread (see test_trigger
     # for the same DetachedInstanceError issue) — accessing ``execution.id``
@@ -333,7 +429,6 @@ def webhook_receiver(trigger_id):
     execution_id = execution.id
     trigger_id_int = trigger.id
 
-    from flask import current_app
     app = current_app._get_current_object()
 
     def _run():
@@ -343,7 +438,218 @@ def webhook_receiver(trigger_id):
     thread = threading.Thread(target=_run, daemon=True)
     thread.start()
 
+    current_app.logger.info(
+        f"evt=trigger_webhook trigger_id={trigger_id_int} source={trigger.source}"
+        f" idem_key={idem_key!r} exec_id={execution_id}"
+    )
+
     return jsonify({"status": "ok"}), 200
+
+
+# ── Replay Endpoint (Step 5 — PR-3 2026-05-11) ────────────────────────────
+
+
+@bp.route("/api/triggers/executions/<int:exec_id>/replay", methods=["POST"])
+def replay_execution(exec_id: int):
+    """Replay a failed execution. Requires session auth (not a public endpoint).
+
+    Rate-limit: 60s between replays of the same execution.
+    Creates a new TriggerExecution row; marks the original as 'replayed'.
+    Returns: {"status": "ok", "new_execution_id": int}  or  {"error": str} + 4xx.
+    """
+    from flask_login import current_user as _cu
+    if not _cu.is_authenticated:
+        return jsonify({"error": "Forbidden"}), 403
+
+    ex = TriggerExecution.query.get(exec_id)
+    if not ex:
+        return jsonify({"error": "not_found"}), 404
+
+    if ex.status not in ("failed_retryable", "failed"):
+        return jsonify({"error": "not_replayable", "current_status": ex.status}), 400
+
+    # Rate-limit: max 1 replay per execution per 60 seconds
+    if ex.last_replay_at is not None:
+        elapsed = (datetime.now(timezone.utc) - ex.last_replay_at).total_seconds()
+        if elapsed < 60:
+            retry_after = int(60 - elapsed)
+            return jsonify({"error": "rate_limited", "retry_after_seconds": retry_after}), 429
+
+    trigger = Trigger.query.get(ex.trigger_id)
+    if not trigger:
+        return jsonify({"error": "trigger_not_found"}), 404
+
+    # Preserve original event_data (and idempotency_key) so the dedup layer
+    # protects against double-execution if the original had already partially run.
+    try:
+        original_event_data = json.loads(ex.event_data) if ex.event_data else {}
+    except (json.JSONDecodeError, TypeError):
+        original_event_data = {}
+
+    new_ex = TriggerExecution(
+        trigger_id=ex.trigger_id,
+        event_data=ex.event_data,
+        idempotency_key=ex.idempotency_key,
+        status="pending",
+    )
+    db.session.add(new_ex)
+
+    # Mark original as replayed and stamp rate-limit timestamp
+    ex.last_replay_at = datetime.now(timezone.utc)
+    ex.status = "replayed"
+
+    try:
+        db.session.commit()
+    except IntegrityError as exc:
+        # Mesma proteção do webhook_receiver: só absorve a violação se for
+        # do índice de idempotência. Outros IntegrityError (NOT NULL, FK,
+        # outros uniques) precisam propagar para não mascarar bugs reais.
+        db.session.rollback()
+        err_text = str(getattr(exc, "orig", exc)).lower()
+        is_idem_violation = (
+            ex.idempotency_key is not None
+            and ("uq_trigger_idem" in err_text or "idempotency_key" in err_text)
+        )
+        if not is_idem_violation:
+            current_app.logger.error(
+                f"evt=integrity_error_unexpected_replay exec_id={ex.id} "
+                f"key={ex.idempotency_key} err={err_text!r}"
+            )
+            raise
+        return jsonify({"status": "ok", "note": "idempotent_skip"}), 200
+
+    new_execution_id = new_ex.id
+    trigger_id_int = trigger.id
+
+    app = current_app._get_current_object()
+
+    def _run():
+        with app.app_context():
+            _execute_trigger(trigger_id_int, new_execution_id, original_event_data)
+
+    threading.Thread(target=_run, daemon=True).start()
+
+    current_app.logger.info(
+        f"evt=trigger_replay original_exec={exec_id} new_exec={new_execution_id}"
+        f" trigger_id={trigger_id_int}"
+    )
+
+    return jsonify({"status": "ok", "new_execution_id": new_execution_id}), 200
+
+
+# ── Stats Endpoint (Step 6 — PR-3 2026-05-11) ─────────────────────────────
+
+
+@bp.route("/api/triggers/stats", methods=["GET"])
+def trigger_stats():
+    """Return operational metrics for the trigger execution pipeline.
+
+    Query param: ?days=N (default 1, max 30).
+    Used by the /triggers UI badge and the watermark CB check.
+
+    Watermark: when wpp_command_count > 50 OR distinct_users > 1 in the window,
+    circuit_breaker_watermark_hit is set to True and a WARNING is logged.
+    """
+    try:
+        days = max(1, min(30, int(request.args.get("days", 1))))
+    except (TypeError, ValueError):
+        days = 1
+
+    # Use raw SQL via SQLAlchemy text for aggregate queries (no ORM overhead).
+    # Todos os params abaixo são bindados (Sourcery #80 — evita interpolação
+    # mesmo com inputs hoje "seguros", garante robustez se a lógica mudar).
+    from sqlalchemy import text as _text
+
+    cutoff = datetime.now(timezone.utc) - timedelta(days=days)
+
+    # 1. Total executions + by_status breakdown
+    rows = db.session.execute(
+        _text(
+            "SELECT status, COUNT(*) as cnt FROM trigger_executions "
+            "WHERE started_at >= :cutoff GROUP BY status"
+        ),
+        {"cutoff": cutoff},
+    ).fetchall()
+    by_status: dict = {}
+    total_executions = 0
+    for row in rows:
+        by_status[row[0]] = row[1]
+        total_executions += row[1]
+
+    # 2. DLQ size: failed_retryable rows (unreplayed — status is still failed_retryable)
+    dlq_size = by_status.get("failed_retryable", 0)
+
+    # 3. Idempotent replays: count rows whose status was set via dedup log
+    #    Approximation: TriggerExecutions with status='replayed' created in window
+    #    (exact log parsing is fragile; replayed status is precise enough for watermark)
+    idempotent_replays = db.session.execute(
+        _text(
+            "SELECT COUNT(*) FROM trigger_executions "
+            "WHERE status = 'replayed' AND started_at >= :cutoff"
+        ),
+        {"cutoff": cutoff},
+    ).scalar() or 0
+
+    # 4. WPP command count: triggers whose source = 'whatsapp' OR slug contains 'wpp'
+    #    Also count executions referencing those triggers
+    wpp_trigger_ids = db.session.execute(
+        _text(
+            "SELECT id FROM triggers WHERE source = 'whatsapp' OR slug LIKE 'wpp%' OR name LIKE 'wpp%' OR name LIKE 'WhatsApp%'"
+        )
+    ).fetchall()
+    wpp_ids = [r[0] for r in wpp_trigger_ids]
+
+    if wpp_ids:
+        # IN clause via expanding bindparam — SQLAlchemy expande pra (:id_1, :id_2, ...)
+        # e bindando cada ID. Mais seguro e legível que interpolar id_list,
+        # mesmo sendo ints (defesa contra regressões futuras se a fonte mudar).
+        try:
+            stmt = _text(
+                "SELECT COUNT(*) FROM trigger_executions "
+                "WHERE trigger_id IN :wpp_ids AND started_at >= :cutoff"
+            ).bindparams(bindparam("wpp_ids", expanding=True))
+            wpp_command_count = db.session.execute(
+                stmt, {"wpp_ids": wpp_ids, "cutoff": cutoff}
+            ).scalar() or 0
+        except Exception:
+            wpp_command_count = 0
+    else:
+        wpp_command_count = 0
+
+    # 5. Distinct users in last 7 days (static 1 for single-user workspace)
+    #    When multi-user support arrives this becomes a real query.
+    user_count = 1  # single-user workspace assumption; revisit when multi-user lands
+
+    # 6. Retries observed: executions where result_summary or error contains retry evidence
+    #    (Step 3 backoff logs "attempts" in the summary)
+    retries_observed = db.session.execute(
+        _text(
+            "SELECT COUNT(*) FROM trigger_executions "
+            "WHERE (result_summary LIKE '%\"attempts\"%' OR error LIKE '%attempts%') "
+            "AND started_at >= :cutoff"
+        ),
+        {"cutoff": cutoff},
+    ).scalar() or 0
+
+    # 7. Watermark check
+    watermark_hit = wpp_command_count > 50 or user_count > 1
+    if watermark_hit:
+        current_app.logger.warning(
+            f"evt=circuit_breaker_watermark_hit wpp_command_count={wpp_command_count}"
+            f" user_count={user_count} window_days={days}"
+            " — review Circuit Breaker (see [C]adr-retry-pattern.md)"
+        )
+
+    return jsonify({
+        "window_days": days,
+        "total_executions": total_executions,
+        "by_status": by_status,
+        "retries_observed": retries_observed,
+        "idempotent_replays": idempotent_replays,
+        "dlq_size": dlq_size,
+        "wpp_command_count": wpp_command_count,
+        "circuit_breaker_watermark_hit": watermark_hit,
+    }), 200
 
 
 # ── Webhook Validation & Parsing ───────────────────────────────────────────
@@ -562,17 +868,42 @@ def _execute_trigger(trigger_id: int, execution_id: int, event_data: dict):
         else:
             raise ValueError(f"Unknown action_type: {trigger.action_type}")
 
-        execution.status = "completed" if result.get("success") else "failed"
+        # --- Step 4: classify subprocess result (PR-3 2026-05-11) ---
+        if result.get("success"):
+            execution.status = "completed"
+            execution.error_category = None
+        else:
+            stderr = (result.get("stderr") or "")[:2000]
+            category = _classify_error(stderr, None)
+            execution.status = "failed_retryable" if category == "transient" else "failed"
+            execution.error_category = category
+            execution.error = stderr
         execution.result_summary = (result.get("stdout", "") or "")[:5000]
-        if not result.get("success"):
-            execution.error = (result.get("stderr", "") or "")[:2000]
+        current_app.logger.info(
+            f"evt=trigger_execute trigger_id={trigger_id} exec_id={execution_id}"
+            f" status={execution.status} category={execution.error_category}"
+        )
+        # --- End Step 4 result classification ---
 
     except subprocess.TimeoutExpired:
-        execution.status = "failed"
+        # Transient: timeout is retriable (infrastructure issue, not logic failure)
+        execution.status = "failed_retryable"
         execution.error = "Timeout (11 min)"
+        execution.error_category = "transient"
+        current_app.logger.warning(
+            f"evt=trigger_execute trigger_id={trigger_id} exec_id={execution_id}"
+            f" status=failed_retryable category=transient reason=TimeoutExpired"
+        )
     except Exception as e:
-        execution.status = "failed"
-        execution.error = str(e)[:2000]
+        err = str(e)[:2000]
+        category = _classify_error(err, e)
+        execution.status = "failed_retryable" if category == "transient" else "failed"
+        execution.error = err
+        execution.error_category = category
+        current_app.logger.warning(
+            f"evt=trigger_execute trigger_id={trigger_id} exec_id={execution_id}"
+            f" status={execution.status} category={category} error={err[:200]!r}"
+        )
 
     end_time = datetime.now(timezone.utc)
     execution.duration_seconds = (end_time - start_time).total_seconds()
