@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import logging
 import os
 import signal
 import subprocess
@@ -27,6 +28,8 @@ import time
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
+
+log = logging.getLogger(__name__)
 
 # Workspace root
 WORKSPACE = Path(__file__).resolve().parent.parent.parent
@@ -284,15 +287,63 @@ def step7_invoke_claude(
 
     duration_ms = int((time.time() - start_time) * 1000)
 
+    tokens_in, tokens_out, cost_usd = _parse_claude_cli_usage(output) if status == "success" else (None, None, None)
+
     return {
         "status": status,
         "output": output,
         "error": error,
         "duration_ms": duration_ms,
-        "tokens_in": None,   # Claude CLI doesn't expose token counts easily
-        "tokens_out": None,
-        "cost_usd": None,
+        "tokens_in": tokens_in,
+        "tokens_out": tokens_out,
+        "cost_usd": cost_usd,
     }
+
+
+def _parse_claude_cli_usage(output: str) -> tuple[int | None, int | None, float | None]:
+    """Extract (tokens_in, tokens_out, cost_usd) from a Claude CLI ``--output-format json`` payload.
+
+    The CLI emits a single-line JSON object on success with ``total_cost_usd`` at top level and
+    ``usage.{input,output}_tokens`` nested. On any malformation the function logs a metadata-only
+    warning (no raw output) and returns ``(None, None, None)`` so the caller can persist a NULL row
+    without crashing.
+
+    ``total_cost_usd`` is rounded to 6 decimal places (micro-dollar precision) so aggregated SUM
+    queries on ``heartbeat_runs.cost_usd`` (FLOAT column) don't accumulate float-representation
+    drift. Full ``Decimal`` would require a schema migration; rounding is the pragmatic mid-point.
+
+    SECURITY: the raw CLI output may contain PII or model-generated content from the user's prompt
+    (emails, credentials, customer data). The log line on failure intentionally contains ONLY the
+    exception class and the output length — no content preview.
+    """
+    if not output:
+        return None, None, None
+    try:
+        payload = json.loads(output.strip().splitlines()[-1])
+        # `total_cost_usd` is float in the CLI today (2.1.141 verified), but accept stringified
+        # numerics defensively in case the format changes (e.g. wrapped Decimal serializer).
+        # Anything else (None, dict, list) falls back to NULL — caller persists missing data.
+        raw_cost = payload.get("total_cost_usd")
+        if isinstance(raw_cost, (int, float)):
+            cost_value = raw_cost
+        elif isinstance(raw_cost, str):
+            try:
+                cost_value = float(raw_cost)
+            except ValueError:
+                cost_value = None
+        else:
+            cost_value = None
+        cost_usd = round(cost_value, 6) if cost_value is not None else None
+        usage = payload.get("usage") or {}
+        return usage.get("input_tokens"), usage.get("output_tokens"), cost_usd
+    except (json.JSONDecodeError, IndexError, TypeError, AttributeError) as parse_exc:
+        log.warning(
+            "step7_invoke_claude: failed to parse Claude CLI JSON output "
+            "(%s, output_len=%d); cost/tokens will be NULL for this run.",
+            parse_exc.__class__.__name__,
+            len(output),
+        )
+        return None, None, None
 
 
 # ── Step 8: Persist status ────────────────────────────────────────────────────
