@@ -613,6 +613,43 @@ with app.app_context():
         except Exception:
             pass
     _conn.commit()
+
+    # --- WhatsApp retry pattern: idempotency_key + error_category + last_replay_at (PR-1 2026-05-11) ---
+    # Rollback: DROP INDEX uq_trigger_idem; DROP INDEX ix_trigger_executions_idem_key
+    # Columns are nullable — old code ignores them without breaking.
+    _te_cols = {row[1] for row in _cur.execute("PRAGMA table_info(trigger_executions)").fetchall()}
+    if "idempotency_key" not in _te_cols:
+        _cur.execute("ALTER TABLE trigger_executions ADD COLUMN idempotency_key TEXT")
+        _conn.commit()
+    if "error_category" not in _te_cols:
+        _cur.execute("ALTER TABLE trigger_executions ADD COLUMN error_category TEXT")
+        _conn.commit()
+    if "last_replay_at" not in _te_cols:
+        _cur.execute("ALTER TABLE trigger_executions ADD COLUMN last_replay_at TIMESTAMP")
+        _conn.commit()
+    # Basic index for idempotency lookups by key alone
+    try:
+        _cur.execute(
+            "CREATE INDEX IF NOT EXISTS ix_trigger_executions_idem_key "
+            "ON trigger_executions (idempotency_key)"
+        )
+        _conn.commit()
+    except Exception:
+        pass
+    # Partial unique index: enforces (trigger_id, idempotency_key) uniqueness only when key IS NOT NULL.
+    # SQLite >= 3.8 supports partial indices natively; our runtime is 3.51 (confirmed).
+    # This is the DB-level guard against race-condition duplicates (Step 2 handles app-level dedup).
+    try:
+        _cur.execute(
+            "CREATE UNIQUE INDEX IF NOT EXISTS uq_trigger_idem "
+            "ON trigger_executions (trigger_id, idempotency_key) "
+            "WHERE idempotency_key IS NOT NULL"
+        )
+        _conn.commit()
+    except Exception:
+        pass
+    # --- End WhatsApp retry pattern migration ---
+
     _conn.close()
     # --- End auto-migrate ---
 

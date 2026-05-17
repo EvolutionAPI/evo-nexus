@@ -7,6 +7,9 @@ import subprocess
 import os
 import sys
 import json
+import random
+import time
+import urllib.error
 from datetime import datetime
 from pathlib import Path
 
@@ -442,6 +445,199 @@ def summary(results: list, title: str = "Completed"):
         border_style="green" if failed == 0 else "yellow",
         padding=(0, 2)
     ))
+
+
+def send_whatsapp_file(filepath: str, caption: str = "", phone: str = None, expires_in: int = 3600) -> bool:
+    """Upload a file to Cloudflare R2 and send it via WhatsApp (Evolution Go).
+
+    Uploads to R2 under "tmp/<timestamp>-<name>", generates a presigned URL
+    valid for `expires_in` seconds, then calls /send/media.
+    Files in tmp/ are NOT auto-deleted — run periodic cleanup or use backup.py prune.
+
+    Requires: boto3, AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, AWS_ENDPOINT_URL,
+              BACKUP_S3_BUCKET, EVOLUTION_GO_URL, EVOLUTION_GO_INSTANCE_TOKEN.
+    """
+    import boto3
+    import urllib.request
+    from pathlib import Path
+
+    filepath = Path(filepath)
+    if not filepath.exists():
+        console.print(f"  [error]✗ Arquivo não encontrado: {filepath}[/error]")
+        return False
+
+    bucket = os.environ.get("BACKUP_S3_BUCKET", "")
+    endpoint_url = os.environ.get("AWS_ENDPOINT_URL", "")
+    if not bucket or not endpoint_url:
+        console.print("  [warning]⚠ R2 não configurado (BACKUP_S3_BUCKET ou AWS_ENDPOINT_URL ausente)[/warning]")
+        return False
+
+    base_url = os.environ.get("EVOLUTION_GO_URL", "").rstrip("/")
+    token = os.environ.get("EVOLUTION_GO_INSTANCE_TOKEN", "")
+    to_phone = phone or os.environ.get("NOTIFY_WHATSAPP_PHONE", "")
+    if not base_url or not token or not to_phone:
+        console.print("  [warning]⚠ Evolution Go não configurado[/warning]")
+        return False
+
+    # Upload to R2 — timestamp prefix avoids name collisions
+    s3_key = f"tmp/{datetime.now().strftime('%Y%m%d-%H%M%S')}-{filepath.name}"
+    console.print(f"  [step]▶[/step] Upload R2: {filepath.name}", end="")
+    try:
+        s3 = boto3.client("s3", endpoint_url=endpoint_url)
+        s3.upload_file(str(filepath), bucket, s3_key)
+        presigned_url = s3.generate_presigned_url(
+            "get_object",
+            Params={"Bucket": bucket, "Key": s3_key},
+            ExpiresIn=expires_in,
+        )
+        console.print(f"\r  [success]✓[/success] Upload R2: {filepath.name}")
+    except Exception as e:
+        console.print(f"\r  [error]✗[/error] Upload R2 falhou: {e}")
+        return False
+
+    # Detect media type
+    suffix = filepath.suffix.lower()
+    if suffix in (".jpg", ".jpeg", ".png", ".gif", ".webp"):
+        mediatype = "image"
+    elif suffix in (".mp4", ".mov", ".avi"):
+        mediatype = "video"
+    elif suffix in (".mp3", ".ogg", ".m4a", ".wav"):
+        mediatype = "audio"
+    else:
+        mediatype = "document"
+
+    # Send via Evolution Go
+    jid = f"{to_phone}@s.whatsapp.net" if "@" not in to_phone else to_phone
+    payload = json.dumps({
+        "number": jid,
+        "url": presigned_url,
+        "type": mediatype,
+        "fileName": filepath.name,
+        "caption": caption,
+    }).encode("utf-8")
+    req = urllib.request.Request(
+        f"{base_url}/send/media",
+        data=payload,
+        method="POST",
+        headers={
+            "apikey": token,
+            "Content-Type": "application/json",
+            "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36",
+        },
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=15) as resp:
+            ok = resp.status == 200
+        if ok:
+            console.print(f"  [success]✓[/success] WhatsApp arquivo enviado: {filepath.name}")
+        else:
+            console.print(f"  [warning]⚠ WhatsApp status {resp.status}[/warning]")
+        return ok
+    except Exception as e:
+        console.print(f"  [warning]⚠ WhatsApp erro ao enviar arquivo: {e}[/warning]")
+        return False
+
+
+def _retry_http_call(do_call, max_attempts=3, base_delay=2.0, max_delay=8.0):
+    """Generic retry wrapper with exponential backoff + jitter.
+
+    do_call() must return True on success, raise urllib.error.HTTPError or
+    urllib.error.URLError / socket.timeout on failure.
+
+    Retries only on HTTP 5xx, URLError, and socket.timeout (transient).
+    NEVER retries on HTTP 4xx (deterministic client errors).
+
+    Returns (ok: bool, attempts: int, error_category: str | None).
+    Worst-case latency (3 attempts, all 5xx):
+      sleep 0 + sleep ~2.5 + sleep ~4.5 ≈ 7 s total.
+    """
+    import socket
+
+    last_error_category = None
+    for attempt in range(max_attempts):
+        try:
+            result = do_call()
+            return result, attempt + 1, None
+        except urllib.error.HTTPError as e:
+            if e.code < 500:
+                # 4xx — deterministic client error, no retry
+                console.print(
+                    f"  [warning]⚠ WhatsApp HTTP {e.code} (client error, no retry)[/warning]"
+                )
+                return False, attempt + 1, "permanent"
+            last_error_category = "transient"
+            if attempt < max_attempts - 1:
+                delay = min(base_delay ** attempt + random.uniform(0, 0.5), max_delay)
+                console.print(
+                    f"  [warning]⚠ WhatsApp HTTP {e.code} (attempt {attempt + 1}/{max_attempts},"
+                    f" retry in {delay:.1f}s)[/warning]"
+                )
+                time.sleep(delay)
+            else:
+                console.print(
+                    f"  [warning]⚠ WhatsApp HTTP {e.code} (attempt {attempt + 1}/{max_attempts},"
+                    f" giving up)[/warning]"
+                )
+        except (urllib.error.URLError, socket.timeout) as e:
+            last_error_category = "transient"
+            if attempt < max_attempts - 1:
+                delay = min(base_delay ** attempt + random.uniform(0, 0.5), max_delay)
+                console.print(
+                    f"  [warning]⚠ WhatsApp network error: {e}"
+                    f" (attempt {attempt + 1}/{max_attempts}, retry in {delay:.1f}s)[/warning]"
+                )
+                time.sleep(delay)
+            else:
+                console.print(
+                    f"  [warning]⚠ WhatsApp network error: {e}"
+                    f" (attempt {attempt + 1}/{max_attempts}, giving up)[/warning]"
+                )
+    return False, max_attempts, last_error_category
+
+
+def send_whatsapp(text: str, phone: str = None) -> bool:
+    """Send a WhatsApp message via Evolution Go (no MCP dependency).
+
+    Uses the EvoNexus instance token (EVOLUTION_GO_INSTANCE_TOKEN) which
+    authenticates /send/* endpoints — different from the global EVOLUTION_GO_KEY.
+    Reads EVOLUTION_GO_URL, EVOLUTION_GO_INSTANCE_TOKEN, NOTIFY_WHATSAPP_PHONE from env.
+    Applies exponential backoff + jitter on HTTP 5xx / network errors (up to 3 attempts).
+    Returns True if sent successfully, False otherwise.
+    """
+    import urllib.request
+
+    base_url = os.environ.get("EVOLUTION_GO_URL", "").rstrip("/")
+    token = os.environ.get("EVOLUTION_GO_INSTANCE_TOKEN", "")
+    to_phone = phone or os.environ.get("NOTIFY_WHATSAPP_PHONE", "")
+
+    if not base_url or not token or not to_phone:
+        console.print("  [warning]⚠ WhatsApp not configured (missing EVOLUTION_GO_URL, INSTANCE_TOKEN or NOTIFY_PHONE)[/warning]")
+        return False
+
+    jid = f"{to_phone}@s.whatsapp.net" if "@" not in to_phone else to_phone
+    payload = json.dumps({"number": jid, "text": text}).encode("utf-8")
+
+    def _do_call():
+        req = urllib.request.Request(
+            f"{base_url}/send/text",
+            data=payload,
+            method="POST",
+            headers={
+                "apikey": token,
+                "Content-Type": "application/json",
+                "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36",
+            },
+        )
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            return resp.status == 200
+
+    ok, attempts, category = _retry_http_call(_do_call)
+    console.print(
+        f"  {'[success]✓[/success] WhatsApp enviado' if ok else '[warning]⚠ WhatsApp falhou[/warning]'}"
+        f" action=send_whatsapp attempts={attempts} final_status={'ok' if ok else 'fail'}"
+        f" category={category or 'none'}"
+    )
+    return ok
 
 
 def send_telegram(text: str, chat_id: str = None) -> bool:
